@@ -97,6 +97,7 @@ const handleRequest = async (
       version: API_VERSION,
       model: core.config.model,
       contextWindow: core.config.contextWindow,
+      maxOutputTokens: core.config.maxOutputTokens,
     } satisfies HealthResponse)
     return
   }

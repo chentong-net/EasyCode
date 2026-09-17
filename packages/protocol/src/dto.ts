@@ -25,6 +25,13 @@ export const HealthResponse = z.object({
    * 只有 token 数字的话用户无法判断还能不能继续对话。
    */
   contextWindow: z.number().int().positive(),
+  /**
+   * 单轮回复的输出预留。
+   *
+   * 界面用 `contextWindow - maxOutputTokens` 得出「可用额度」：
+   * 真正能拿来放历史的上限比窗口小，把窗口本身当成上限会让人误以为还有空间。
+   */
+  maxOutputTokens: z.number().int().positive(),
 })
 
 export type HealthResponse = z.infer<typeof HealthResponse>
