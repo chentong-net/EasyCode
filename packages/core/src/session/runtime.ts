@@ -13,30 +13,33 @@ import { createLogger, type Logger } from "../log.js"
 import { applyEvent, createProjectedState, projectEvents, type ProjectedState } from "./projector.js"
 import type { NewDurableEvent, PersistedContext, SessionStore } from "./store.js"
 
-/**
- * 一个回合的运行控制。
- *
- * runner 通过它登记「是否正在运行」「取消控制器」「当前任务」，管理器则用它
- * 实现中断。这些字段必须由 runner 在**任何 await 之前**同步设置好，
- * 否则紧接着到来的中断请求会看到 running=false 而被当成空操作丢弃。
- */
-export interface RunControl {
-  running: boolean
-  controller?: AbortController
-  task?: Promise<void>
-}
-
 /** 一个已加载到内存的会话。 */
 export interface SessionHandle {
   readonly id: string
   /** 内存投影状态。只读使用，写操作一律通过 append 走事件日志。 */
   readonly state: ProjectedState
-  readonly run: RunControl
 
   /** 追加一条持久化事件：分配序号 → 落盘 → 更新投影 → 广播 → 必要时同步会话缓存 */
   append(event: NewDurableEvent): Promise<DurableEvent>
   readContext(): Promise<PersistedContext | undefined>
   saveContext(context: PersistedContext): Promise<void>
+}
+
+/**
+ * 执行驱动。
+ *
+ * 会话管理器负责「持久化与投影」，具体「怎么跑一个回合」交给驱动实现。
+ * 两者通过这个接口解耦，好处是管理器不需要知道 agent 循环的存在，
+ * 而 runner 也只需要依赖几句抽象：唤醒、中断、查询是否在跑。
+ *
+ * `wake` 必须是同步返回的，且要在任何 await 之前登记好取消控制器：
+ * 否则「用户发完消息立刻点中断」时，中断请求会看到「当前没在运行」而被丢弃。
+ */
+export interface RunDriver {
+  wake(sessionID: string): void
+  interrupt(sessionID: string): Promise<void>
+  isRunning(sessionID: string): boolean
+  shutdown(): Promise<void>
 }
 
 export interface SessionManagerDeps {
@@ -46,9 +49,6 @@ export interface SessionManagerDeps {
   agents: AgentRegistry
   logger?: Logger
 }
-
-/** 运行时的唤醒回调。由 runner 注册。 */
-export type WakeHandler = (sessionID: string) => void
 
 export interface SessionManager {
   /** 全部会话，按更新时间倒序。侧边栏使用。 */
@@ -65,8 +65,8 @@ export interface SessionManager {
   isRunning(sessionID: string): boolean
   /** 取出会话句柄（必要时从磁盘加载） */
   handle(sessionID: string): Promise<SessionHandle>
-  /** runner 注册唤醒回调 */
-  setWakeHandler(handler: WakeHandler): void
+  /** 注册执行驱动 */
+  setRunDriver(driver: RunDriver): void
   /** 关闭：中止所有运行中的回合 */
   shutdown(): Promise<void>
 }
@@ -74,27 +74,26 @@ export interface SessionManager {
 export const createSessionManager = (deps: SessionManagerDeps): SessionManager => {
   const logger = deps.logger ?? createLogger("session")
   const handles = new Map<string, SessionHandle>()
-  let wakeHandler: WakeHandler | undefined
+  let driver: RunDriver | undefined
 
   const createHandle = (state: ProjectedState): SessionHandle => {
     const id = state.session.id
-    const run: RunControl = { running: false }
 
     return {
       id,
       state,
-      run,
       append: async (event: NewDurableEvent): Promise<DurableEvent> => {
         const stored = await deps.store.appendEvent(id, state.lastSeq + 1, event)
         applyEvent(state, stored)
         deps.hub.publish(stored)
 
         // 会话元信息变化时同步派生缓存，让侧边栏列表能立刻反映最新标题与用量。
-        // 其它事件不影响列表展示，不需要付这次写盘成本。
+        // 其它事件（文本增量、工具调用等）不影响列表展示，不必付这次写盘成本。
         if (
           stored.type === "session.created" ||
           stored.type === "session.updated" ||
-          stored.type === "session.todos"
+          stored.type === "session.todos" ||
+          stored.type === "message.ended"
         ) {
           await deps.store.writeSession(state.session)
         }
@@ -169,6 +168,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
           timestamp: now,
           messageID: message.id,
           finish: "interrupted",
+          error: "该消息未正常结束（进程重启）",
         })
         recoveredMessages += 1
       }
@@ -187,7 +187,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     const agent = deps.agents.default()
     const session: Session = {
       id: newSessionID(),
-      title: input.title?.trim() || "新会话",
+      title: input.title?.trim() || DEFAULT_SESSION_TITLE,
       directory,
       agent: agent.id,
       model: deps.config.model,
@@ -227,33 +227,9 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
     // 唤醒执行。这里不 await：prompt 的语义是「持久化接纳 + 触发执行」，
     // 真正的执行进度通过事件流反馈给调用方
-    wakeHandler?.(handle.id)
+    driver?.wake(handle.id)
 
     return { inputID }
-  }
-
-  const interrupt = async (sessionID: string): Promise<void> => {
-    const handle = handles.get(sessionID)
-    if (!handle || !handle.run.running) {
-      logger.debug("会话当前没有运行中的回合，中断请求已忽略", { sessionID })
-      return
-    }
-
-    logger.info("收到中断请求", { sessionID })
-    await handle.append({ type: "run.interrupted", sessionID, timestamp: Date.now() })
-    handle.run.controller?.abort()
-
-    // 等当前回合真正退出，否则调用方紧接着发起的下一轮会和它并发跑，
-    // 造成两条助手消息交错写入同一段历史
-    await handle.run.task?.catch(() => undefined)
-  }
-
-  const shutdown = async (): Promise<void> => {
-    const running = [...handles.values()].filter((handle) => handle.run.running)
-    if (running.length === 0) return
-    logger.info("正在中止运行中的回合", { count: running.length })
-    for (const handle of running) handle.run.controller?.abort()
-    await Promise.allSettled(running.map((handle) => handle.run.task ?? Promise.resolve()))
   }
 
   return {
@@ -262,15 +238,23 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     get: (sessionID) => deps.store.readSession(sessionID),
     messages: async (sessionID) => [...(await load(sessionID)).state.messages],
     prompt,
-    interrupt,
-    isRunning: (sessionID) => handles.get(sessionID)?.run.running === true,
-    handle: load,
-    setWakeHandler: (handler) => {
-      wakeHandler = handler
+    interrupt: async (sessionID) => {
+      if (!driver) return
+      await driver.interrupt(sessionID)
     },
-    shutdown,
+    isRunning: (sessionID) => driver?.isRunning(sessionID) ?? false,
+    handle: load,
+    setRunDriver: (next) => {
+      driver = next
+    },
+    shutdown: async () => {
+      await driver?.shutdown()
+    },
   }
 }
+
+/** 新会话的默认标题。首次输入提升时会被替换成输入内容的摘要。 */
+export const DEFAULT_SESSION_TITLE = "新会话"
 
 /** 展开路径开头的 `~`，让 CLI 可以直接传 `~/easy_code`。 */
 const expandHome = (path: string): string =>
