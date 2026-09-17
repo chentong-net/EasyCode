@@ -44,6 +44,15 @@ export const SessionListResponse = z.array(Session)
 
 export type SessionListResponse = z.infer<typeof SessionListResponse>
 
+/**
+ * 新建会话的默认工作目录。
+ *
+ * 放在这里是因为它需要被所有界面共用：命令行、桌面端的新建会话表单
+ * 都要用它作为输入框的默认值。真正的路径展开由 Core 在创建会话时完成，
+ * 因此这里保留 `~` 写法，不在这里解析成绝对路径。
+ */
+export const DEFAULT_WORKSPACE_DIRECTORY = "~/easy_code"
+
 export const SessionResponse = Session
 
 export type SessionResponse = z.infer<typeof SessionResponse>
