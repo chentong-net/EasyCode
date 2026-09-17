@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { Content } from "./message.js"
 import { PermissionReply } from "./permission.js"
-import { Session } from "./session.js"
+import { Session, Todo } from "./session.js"
 import { Usage } from "./usage.js"
 
 /**
@@ -58,6 +58,18 @@ const SessionFailed = z.object({
   ...durableEnvelope,
   type: z.literal("session.failed"),
   message: z.string(),
+})
+
+/**
+ * 任务清单更新。
+ *
+ * 由 todowrite 工具触发，整表覆盖而不是增量修改：模型的注意力有限，
+ * 让它每次给出完整清单比让它算「哪一项要改」可靠得多。
+ */
+const SessionTodos = z.object({
+  ...durableEnvelope,
+  type: z.literal("session.todos"),
+  todos: z.array(Todo),
 })
 
 /**
@@ -219,6 +231,7 @@ export const DurableEvent = z.discriminatedUnion("type", [
   SessionCreated,
   SessionUpdated,
   SessionFailed,
+  SessionTodos,
   InputAdmitted,
   InputPromoted,
   MessageStarted,
