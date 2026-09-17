@@ -20,18 +20,22 @@ import { toThreadMessage } from "./thread-message"
 export const useEasyCodeRuntime = (store: EasyCodeStore): AssistantRuntime => {
   const convertMessage = useCallback((message: Message): ThreadMessageLike => toThreadMessage(message), [])
 
+  // 依赖具体的动作而不是整个 store 对象：store 每次渲染都是新对象，
+  // 依赖它会让下面两个回调每帧都重建，进而让适配器每帧都被替换一次
+  const { send, interrupt } = store
+
   const onNew = useCallback(
     async (message: AppendMessage) => {
       const text = extractText(message)
       if (text.length === 0) return
-      await store.send(text)
+      await send(text)
     },
-    [store],
+    [send],
   )
 
   const onCancel = useCallback(async () => {
-    await store.interrupt()
-  }, [store])
+    await interrupt()
+  }, [interrupt])
 
   return useExternalStoreRuntime({
     messages: store.messages,
