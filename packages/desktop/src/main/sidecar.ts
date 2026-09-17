@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto"
 import { readFile, rm } from "node:fs/promises"
+import { dirname } from "node:path"
 
 import { utilityProcess } from "electron"
 
@@ -60,6 +61,10 @@ export const startSidecar = async (options: StartSidecarOptions): Promise<Sideca
   const child = utilityProcess.fork(options.entry, [], {
     serviceName: "EasyCode Core",
     stdio: "pipe",
+    // 工作目录固定为配置文件所在目录。默认情况下进程会继承主进程的 cwd
+    // （开发时是 packages/desktop），一旦配置里出现相对路径，
+    // 生成的文件就会落在应用包里，而不是用户以为的地方
+    cwd: dirname(options.envFile),
     // 必须显式继承父进程环境：Node 的 fork 语义是「整体替换」，
     // 不继承的话 PATH 之类的变量会消失，子进程里任何 spawn 都会失败
     env: {
