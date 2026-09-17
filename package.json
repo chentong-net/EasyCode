@@ -16,6 +16,7 @@
     "clean": "rm -rf packages/schema/dist packages/protocol/dist packages/core/dist packages/server/dist packages/client/dist packages/cli/dist packages/desktop/out"
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
     "typescript": "^5.6.0"
   }
 }
