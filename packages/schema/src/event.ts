@@ -223,6 +223,27 @@ const PermissionReplied = z.object({
   feedback: z.string().optional(),
 })
 
+/**
+ * 回合开始。
+ *
+ * 一个「回合」指从用户输入被唤醒到整个执行流程彻底空闲的完整过程，
+ * 它可能包含多次 provider turn。界面必须能准确判断这个状态：
+ * 否则会出现「模型正在跑工具，但界面上停止按钮消失了」这类问题。
+ *
+ * 只从消息状态推导是不够的——两次 provider turn 之间，上一条助手消息
+ * 已经结束、下一条还没开始，推导出来会短暂地变成「空闲」。
+ */
+const RunStarted = z.object({
+  ...durableEnvelope,
+  type: z.literal("run.started"),
+})
+
+/** 回合彻底空闲：所有工具结算完毕，也没有待处理的输入了。 */
+const RunIdle = z.object({
+  ...durableEnvelope,
+  type: z.literal("run.idle"),
+})
+
 /** 回合被中断。 */
 const RunInterrupted = z.object({
   ...durableEnvelope,
@@ -253,6 +274,8 @@ export const DurableEvent = z.discriminatedUnion("type", [
   ContextUpdated,
   PermissionAsked,
   PermissionReplied,
+  RunStarted,
+  RunIdle,
   RunInterrupted,
 ])
 

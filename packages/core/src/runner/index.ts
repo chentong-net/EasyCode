@@ -156,31 +156,39 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         ? "queue"
         : undefined
 
-    while (!controller.signal.aborted) {
-      let step = 1
-      let needsContinuation = true
+    await handle.append({ type: "run.started", sessionID, timestamp: Date.now() })
 
-      while (needsContinuation) {
+    try {
+      while (!controller.signal.aborted) {
+        let step = 1
+        let needsContinuation = true
+
+        while (needsContinuation) {
+          if (controller.signal.aborted) break
+
+          const result = await runTurn({ handle, agent, controller, step, promotion })
+          needsContinuation = result.needsContinuation
+          step = result.step + 1
+
+          // 一轮内的后续 provider turn 都按插话方式提升：
+          // 新输入会重置步数预算，因为它很可能改变了任务方向
+          promotion = "steer"
+          if (!needsContinuation) needsContinuation = hasPendingInput(handle.state, "steer")
+        }
+
         if (controller.signal.aborted) break
 
-        const result = await runTurn({ handle, agent, controller, step, promotion })
-        needsContinuation = result.needsContinuation
-        step = result.step + 1
-
-        // 一轮内的后续 provider turn 都按插话方式提升：
-        // 新输入会重置步数预算，因为它很可能改变了任务方向
-        promotion = "steer"
-        if (!needsContinuation) needsContinuation = hasPendingInput(handle.state, "steer")
+        // 排队输入只在会话即将空闲时提升一条，然后重新判断是否还要继续
+        if (!hasPendingInput(handle.state, "queue")) break
+        promotion = "queue"
       }
-
-      if (controller.signal.aborted) break
-
-      // 排队输入只在会话即将空闲时提升一条，然后重新判断是否还要继续
-      if (!hasPendingInput(handle.state, "queue")) break
-      promotion = "queue"
+    } finally {
+      // 空闲事件必须写：界面靠它撤销「正在运行」状态。
+      // 放在 finally 里是因为无论是正常结束、异常还是中断，
+      // 界面都必须从运行态回到空闲态，否则停止按钮会一直挂着
+      await handle.append({ type: "run.idle", sessionID, timestamp: Date.now() })
+      logger.info("回合执行结束", { sessionID })
     }
-
-    logger.info("回合执行结束", { sessionID })
   }
 
   /* ------------------------------------------------------------------------ */

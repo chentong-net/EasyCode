@@ -215,6 +215,8 @@ export const createSessionRenderer = (options: SessionRendererOptions): SessionR
       case "tool.input.delta":
       case "context.updated":
       case "permission.replied":
+      case "run.started":
+      case "run.idle":
         break
     }
   }

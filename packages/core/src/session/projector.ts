@@ -213,6 +213,11 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       state.pendingPermissions.delete(event.requestID)
       break
 
+    case "run.started":
+    case "run.idle":
+      // 回合状态不改变消息历史，它是给界面判断「是否正在运行」用的
+      break
+
     case "run.interrupted":
       // 中断本身不改变历史，只作为事件告诉 UI「这一轮停了」
       break
