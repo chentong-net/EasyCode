@@ -39,7 +39,7 @@ interface DeltaBuffer {
 }
 
 export interface EasyCodeStore {
-  /** 全部会话，按更新时间倒序 */
+  /** 当前工作目录下的会话，按更新时间倒序 */
   sessions: Session[]
   currentSessionID: string | undefined
   currentSession: Session | undefined
@@ -49,22 +49,25 @@ export interface EasyCodeStore {
   running: boolean
   /** 待用户回应的授权请求 */
   pendingPermissions: PermissionRequest[]
-  /** 事件流是否连通。断开时界面顶部会给出提示。 */
+  /** 事件流是否连通。断开时底部状态栏会给出提示。 */
   connected: boolean
   loading: boolean
   error: string | undefined
   /** 模型上下文窗口大小，用于把 token 占用显示成比例 */
   contextWindow: number | undefined
+  /** 单轮回复的输出预留，用于算出「可用额度」 */
+  maxOutputTokens: number | undefined
 
   selectSession(sessionID: string): void
-  createSession(directory: string): Promise<void>
+  /** 在当前工作目录下新建会话 */
+  createSession(): Promise<void>
   send(text: string): Promise<void>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
   clearError(): void
 }
 
-export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
+export const useEasyCode = (client: EasyCodeClient, workspace: string | undefined): EasyCodeStore => {
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionID, setCurrentSessionID] = useState<string | undefined>()
   const [currentSession, setCurrentSession] = useState<Session | undefined>()
@@ -78,6 +81,25 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
   /** 自增即可触发会话列表重新拉取，比在每次变更处手写更新逻辑更不容易漏 */
   const [sessionListToken, setSessionListToken] = useState(0)
   const [contextWindow, setContextWindow] = useState<number | undefined>()
+  const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
+
+  /** 只保留当前工作目录下的会话。切换到别的目录后，列表应当完全换一批。 */
+  const scopedSessions = useMemo(
+    () => (workspace === undefined ? [] : sessions.filter((session) => session.directory === workspace)),
+    [sessions, workspace],
+  )
+
+  /**
+   * 真正可以操作的会话。
+   *
+   * 与状态里的 `currentSessionID` 差一层校验：切换工作目录后、新列表还没回来之前，
+   * 原来选中的会话已经不属于当前目录了。这时不能继续拿它去拉消息或推送输入，
+   * 否则界面会短暂显示另一个目录下会话的内容。
+   */
+  const activeSessionID = useMemo(
+    () => (scopedSessions.some((session) => session.id === currentSessionID) ? currentSessionID : undefined),
+    [scopedSessions, currentSessionID],
+  )
 
   /* ---------------------------------------------------------------------- */
   /* 运行环境信息                                                            */
@@ -87,9 +109,11 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
     const controller = new AbortController()
     void (async () => {
       try {
-        // 上下文窗口是模型的固有属性，进程生命周期内不会变，拉一次即可
+        // 上下文窗口与输出预留都是模型的固有属性，进程生命周期内不会变，拉一次即可
         const health = await client.health(controller.signal)
-        if (!controller.signal.aborted) setContextWindow(health.contextWindow)
+        if (controller.signal.aborted) return
+        setContextWindow(health.contextWindow)
+        setMaxOutputTokens(health.maxOutputTokens)
       } catch (cause) {
         // 拿不到不影响使用，只是用量显示退化成只有绝对数字
         if (!controller.signal.aborted) console.warn("[easycode] 无法获取模型信息", cause)
@@ -103,30 +127,45 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
   /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
+    if (workspace === undefined) {
+      // 还没选工作目录：没有会话可列，也不该去请求
+      setSessions([])
+      setLoading(false)
+      return
+    }
+
     const controller = new AbortController()
+    setLoading(true)
+
     void (async () => {
       try {
         const list = await client.sessions.list(controller.signal)
         if (controller.signal.aborted) return
+
+        const scoped = list.filter((session) => session.directory === workspace)
         setSessions(list)
         setLoading(false)
-        // 首次进入时自动打开最近使用的会话，省掉一次点击
-        setCurrentSessionID((previous) => previous ?? list[0]?.id)
+        // 切换到别的目录后，原来选中的会话已经不在这批里，改为打开该目录下最近的一个；
+        // 只是同目录内刷新（例如标题变了）则保留用户当前的选择
+        setCurrentSessionID((previous) =>
+          previous !== undefined && scoped.some((session) => session.id === previous) ? previous : scoped[0]?.id,
+        )
       } catch (cause) {
         if (controller.signal.aborted) return
         setError(describeError(cause))
         setLoading(false)
       }
     })()
+
     return () => controller.abort()
-  }, [client, sessionListToken])
+  }, [client, sessionListToken, workspace])
 
   /* ---------------------------------------------------------------------- */
   /* 当前会话：初次拉取 + 事件订阅                                            */
   /* ---------------------------------------------------------------------- */
 
   useEffect(() => {
-    if (currentSessionID === undefined) {
+    if (activeSessionID === undefined) {
       setMessages([])
       setDeltas(undefined)
       setCurrentSession(undefined)
@@ -156,9 +195,9 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
       inFlight = true
       try {
         const [nextMessages, nextPermissions, nextSession] = await Promise.all([
-          client.sessions.messages(currentSessionID),
-          client.sessions.permissions(currentSessionID),
-          client.sessions.get(currentSessionID),
+          client.sessions.messages(activeSessionID),
+          client.sessions.permissions(activeSessionID),
+          client.sessions.get(activeSessionID),
         ])
         if (disposed) return
         setMessages(nextMessages)
@@ -254,7 +293,7 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
       try {
         // 先订阅再拉取：订阅时会从头重放全部持久化事件，
         // 因此不会漏掉「拉取」与「订阅」之间产生的事件
-        const stream = client.sessions.events(currentSessionID, { signal: controller.signal })
+        const stream = client.sessions.events(activeSessionID, { signal: controller.signal })
         await load()
         if (disposed) return
 
@@ -275,7 +314,7 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
       controller.abort()
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [client, currentSessionID])
+  }, [client, activeSessionID])
 
   /* ---------------------------------------------------------------------- */
   /* 对外动作                                                                */
@@ -286,46 +325,44 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
     setCurrentSessionID(sessionID)
   }, [])
 
-  const createSession = useCallback(
-    async (directory: string) => {
-      try {
-        const session = await client.sessions.create({ directory })
-        // 列表与当前会话同时更新：不用等下一次拉取，点完立刻就能用
-        setSessions((previous) => [session, ...previous])
-        setCurrentSessionID(session.id)
-      } catch (cause) {
-        setError(describeError(cause))
-      }
-    },
-    [client],
-  )
-
-  const send = useCallback(
-    async (text: string) => {
-      if (currentSessionID === undefined) return
-      try {
-        await client.sessions.prompt(currentSessionID, { text })
-      } catch (cause) {
-        setError(describeError(cause))
-      }
-    },
-    [client, currentSessionID],
-  )
-
-  const interrupt = useCallback(async () => {
-    if (currentSessionID === undefined) return
+  const createSession = useCallback(async () => {
+    if (workspace === undefined) return
     try {
-      await client.sessions.interrupt(currentSessionID)
+      const session = await client.sessions.create({ directory: workspace })
+      // 列表与当前会话同时更新：不用等下一次拉取，点完立刻就能用
+      setSessions((previous) => [session, ...previous])
+      setCurrentSessionID(session.id)
     } catch (cause) {
       setError(describeError(cause))
     }
-  }, [client, currentSessionID])
+  }, [client, workspace])
+
+  const send = useCallback(
+    async (text: string) => {
+      if (activeSessionID === undefined) return
+      try {
+        await client.sessions.prompt(activeSessionID, { text })
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client, activeSessionID],
+  )
+
+  const interrupt = useCallback(async () => {
+    if (activeSessionID === undefined) return
+    try {
+      await client.sessions.interrupt(activeSessionID)
+    } catch (cause) {
+      setError(describeError(cause))
+    }
+  }, [client, activeSessionID])
 
   const replyPermission = useCallback(
     async (requestID: string, reply: PermissionReply, feedback?: string) => {
-      if (currentSessionID === undefined) return
+      if (activeSessionID === undefined) return
       try {
-        await client.sessions.replyPermission(currentSessionID, requestID, {
+        await client.sessions.replyPermission(activeSessionID, requestID, {
           reply,
           ...(feedback === undefined ? {} : { feedback }),
         })
@@ -335,7 +372,7 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
         setError(describeError(cause))
       }
     },
-    [client, currentSessionID],
+    [client, activeSessionID],
   )
 
   const clearError = useCallback(() => setError(undefined), [])
@@ -356,8 +393,8 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
   const mergedMessages = useMemo(() => mergeDeltas(visibleMessages, deltas), [visibleMessages, deltas])
 
   return {
-    sessions,
-    currentSessionID,
+    sessions: scopedSessions,
+    currentSessionID: activeSessionID,
     currentSession,
     messages: mergedMessages,
     running,
@@ -366,6 +403,7 @@ export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
     loading,
     error,
     contextWindow,
+    maxOutputTokens,
     selectSession,
     createSession,
     send,

@@ -5,23 +5,27 @@ import { Chat } from "./Chat"
 import { useEasyCodeRuntime } from "./runtime"
 import { Sidebar } from "./Sidebar"
 import { useEasyCode } from "./store"
+import { useWorkspace } from "./workspace"
 
 /**
  * 应用外壳。
  *
- * 组装顺序上有两处依赖：运行时所需的会话状态来自 useEasyCode，
- * 而界面里的消息原语又必须在 AssistantRuntimeProvider 内部，
- * 因此两者都在这里挂载，子组件只消费结果。
+ * 组装顺序上有两处依赖：运行时所需的会话状态来自 useEasyCode，而会话状态又依赖
+ * 当前工作目录；界面里的消息原语则必须在 AssistantRuntimeProvider 内部。
+ * 因此三者都在这里挂载，子组件只消费结果。
  */
 export const App = ({ client }: { client: EasyCodeClient }) => {
-  const store = useEasyCode(client)
+  const workspace = useWorkspace()
+  const store = useEasyCode(client, workspace.directory)
   const runtime = useEasyCodeRuntime(store)
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <div className="app">
-        <Sidebar store={store} />
-        <Chat store={store} />
+        <div className="app-body">
+          <Sidebar store={store} workspace={workspace} />
+          <Chat store={store} workspace={workspace} />
+        </div>
       </div>
 
       {store.error !== undefined && (

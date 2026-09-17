@@ -2,6 +2,7 @@ import { createClient } from "@easycode/client"
 import { createRoot } from "react-dom/client"
 
 import { App } from "./App"
+import { hasHost, platform } from "./bridge"
 import "./styles.css"
 
 /**
@@ -20,19 +21,22 @@ if (container === null) {
   throw new Error("页面缺少 #root 容器")
 }
 
-const bridge = window.easycode
-
-if (bridge === undefined || bridge.serverUrl.length === 0) {
+if (!hasHost) {
   // 在浏览器里直接打开这个页面时会走到这里。明确说明原因，
   // 比让用户面对一个连接失败的空白界面要好
   createRoot(container).render(<BridgeMissing />)
 } else {
-  // 平台信息挂到根元素上，样式据此决定是否给窗口左上角让出红绿灯的位置
-  document.documentElement.dataset.platform = bridge.platform
+  // 平台信息挂到根元素上，样式据此决定是否给窗口左上角的红绿灯按钮让出位置
+  document.documentElement.dataset.platform = platform
+
+  const injected = window.easycode
+  if (injected === undefined) {
+    throw new Error("宿主环境信息不完整")
+  }
 
   const client = createClient({
-    baseUrl: bridge.serverUrl,
-    token: bridge.serverToken,
+    baseUrl: injected.serverUrl,
+    token: injected.serverToken,
     onInvalidEvent: (raw) => console.warn("[easycode] 收到无法解析的事件帧", raw),
     onReconnecting: ({ attempt, delayMs, reason }) =>
       console.warn(`[easycode] 事件流断开（${reason}），${delayMs}ms 后进行第 ${attempt} 次重连`),
