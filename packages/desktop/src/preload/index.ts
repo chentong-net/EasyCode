@@ -34,5 +34,13 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     serverUrl,
     serverToken,
+    /**
+     * 运行平台。
+     *
+     * 界面需要它来适配窗口装饰：macOS 用的是隐藏式标题栏，左上角被系统画了
+     * 红绿灯按钮，内容必须让出那块位置；Windows 与 Linux 则不需要。
+     * 这类信息只能由主进程侧提供，渲染进程无法自行推断。
+     */
+    platform: process.platform,
   }),
 )

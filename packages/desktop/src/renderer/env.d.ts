@@ -9,6 +9,8 @@ export interface EasyCodeBridge {
   serverUrl: string
   /** 访问令牌 */
   serverToken: string
+  /** 运行平台，取值同 Node 的 process.platform */
+  platform: string
 }
 
 declare global {

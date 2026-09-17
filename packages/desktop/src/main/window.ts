@@ -30,8 +30,9 @@ export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
     show: false,
     title: "EasyCode",
     // 与界面底色一致：窗口出现的瞬间不会闪一下白屏
-    backgroundColor: "#12151c",
-    // macOS 上用隐藏式标题栏，让侧边栏区域可以延伸到顶部
+    backgroundColor: "#ffffff",
+    // macOS 上用隐藏式标题栏，让侧边栏区域可以延伸到顶部。
+    // 界面需要据此为左上角的红绿灯按钮让出位置，平台信息由 preload 传给渲染层
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: options.preloadEntry,

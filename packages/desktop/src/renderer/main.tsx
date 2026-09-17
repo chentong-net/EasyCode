@@ -27,6 +27,9 @@ if (bridge === undefined || bridge.serverUrl.length === 0) {
   // 比让用户面对一个连接失败的空白界面要好
   createRoot(container).render(<BridgeMissing />)
 } else {
+  // 平台信息挂到根元素上，样式据此决定是否给窗口左上角让出红绿灯的位置
+  document.documentElement.dataset.platform = bridge.platform
+
   const client = createClient({
     baseUrl: bridge.serverUrl,
     token: bridge.serverToken,
