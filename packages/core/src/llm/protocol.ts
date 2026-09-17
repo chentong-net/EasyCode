@@ -214,7 +214,14 @@ const toNumber = (value: unknown): number => (typeof value === "number" && Numbe
 
 export interface DecoderResult {
   events: LLMEvent[]
-  /** 已收到 [DONE] 或已产出 finish 事件，消费方可以停止读取 */
+  /**
+   * 是否已经收到 `[DONE]`，消费方可以停止读取。
+   *
+   * 注意它**不**代表「已经产出 finish 事件」：OpenAI 在开启
+   * stream_options.include_usage 后，会把用量单独放在 finish_reason 之后的
+   * 那一帧里。如果收到 finish 就停止读取，usage 会永远是 0，
+   * 而且不会报任何错——这正是最难发现的一类问题。
+   */
   done: boolean
 }
 
@@ -238,6 +245,11 @@ interface PendingToolCall {
  * 工具调用的参数是**分片到达**的：模型先给 id 和函数名，之后一次几字节地吐 JSON。
  * 只有等流结束（finish_reason 或 [DONE]）才能拿到完整的 JSON 去解析，
  * 因此这里必须累积，不能在收到第一个分片时就产出 tool.call 事件。
+ *
+ * `finished` 与 `done` 是两个不同的状态，不能合并：
+ * - `finished`：finish 事件已经产出，之后不会再有工具调用需要结算
+ * - `done`：收到 `[DONE]`，流可以停止读取
+ * 用量帧夹在两者之间，把它们混为一谈会导致用量统计静默归零。
  */
 export const createStreamDecoder = (): StreamDecoder => {
   const pending = new Map<number, PendingToolCall>()
@@ -254,6 +266,7 @@ export const createStreamDecoder = (): StreamDecoder => {
 
   const push = (payload: string): DecoderResult => {
     if (payload.trim() === "[DONE]") {
+      // 极少数实现不发 finish_reason 直接结束，这里补一个，保证消费方总能拿到收尾信号
       const events = finished ? [] : [...flushToolCalls(), { type: "finish" as const, reason: lastFinishReason || "stop" }]
       finished = true
       return { events, done: true }
@@ -316,7 +329,8 @@ export const createStreamDecoder = (): StreamDecoder => {
       }
     }
 
-    return { events, done: finished }
+    // 只有 [DONE] 才代表流结束：finish_reason 之后还可能有用量帧要读
+    return { events, done: false }
   }
 
   const finalize = (): LLMEvent[] => {
