@@ -1,6 +1,7 @@
 import { BrowserWindow, shell } from "electron"
 
 import { log } from "./log"
+import { APP_ENTRY_URL, APP_SCHEME } from "./protocol"
 
 /**
  * 主窗口。
@@ -18,8 +19,6 @@ export interface MainWindowOptions {
   serverToken: string
   /** 预加载脚本绝对路径 */
   preloadEntry: string
-  /** 页面入口绝对路径 */
-  rendererHtml: string
 }
 
 export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
@@ -60,13 +59,14 @@ export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
     return { action: "deny" }
   })
   window.webContents.on("will-navigate", (event, url) => {
-    if (url.startsWith("file://")) return
+    // 只允许在应用自己的协议内跳转，其余一律交给系统浏览器
+    if (url.startsWith(`${APP_SCHEME}://`)) return
     event.preventDefault()
     void shell.openExternal(url)
   })
 
-  void window.loadFile(options.rendererHtml).catch((error) => {
-    log.error("加载界面失败", { html: options.rendererHtml, error })
+  void window.loadURL(APP_ENTRY_URL).catch((error) => {
+    log.error("加载界面失败", { url: APP_ENTRY_URL, error })
   })
 
   return window

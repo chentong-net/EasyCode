@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog } from "electron"
 
 import { log, setLogFile } from "./log"
 import { resolveMainPaths, type MainPaths } from "./paths"
+import { registerAppScheme, serveRendererFiles } from "./protocol"
 import { startSidecar, type Sidecar } from "./sidecar"
 import { createMainWindow } from "./window"
 
@@ -18,6 +19,9 @@ let paths: MainPaths | undefined
 /** 是否正在主动退出。用于区分「正常退出」与「sidecar 意外崩溃」。 */
 let quitting = false
 
+// 协议特权必须在 app ready 之前声明，否则不会生效
+registerAppScheme()
+
 const bootstrap = async (): Promise<void> => {
   paths = resolveMainPaths()
   setLogFile(paths.logFile)
@@ -28,6 +32,8 @@ const bootstrap = async (): Promise<void> => {
     envFile: paths.envFile,
     readyFile: paths.readyFile,
   })
+
+  serveRendererFiles(paths.rendererDir)
 
   sidecar = await startSidecar({
     entry: paths.sidecarEntry,
@@ -40,7 +46,6 @@ const bootstrap = async (): Promise<void> => {
     serverUrl: sidecar.url,
     serverToken: sidecar.token,
     preloadEntry: paths.preloadEntry,
-    rendererHtml: paths.rendererHtml,
   })
 
   const current = paths
@@ -97,7 +102,6 @@ if (!app.requestSingleInstanceLock()) {
       serverUrl: sidecar.url,
       serverToken: sidecar.token,
       preloadEntry: paths.preloadEntry,
-      rendererHtml: paths.rendererHtml,
     })
   })
 
