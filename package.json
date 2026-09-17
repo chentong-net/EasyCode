@@ -1,0 +1,21 @@
+{
+  "name": "easycode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EasyCode - 轻量级 AI Coding Agent",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspace @easycode/schema && npm run build --workspace @easycode/protocol && npm run build --workspace @easycode/core && npm run build --workspace @easycode/server && npm run build --workspace @easycode/client && npm run build --workspace @easycode/cli && npm run build --workspace @easycode/desktop",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "rm -rf packages/schema/dist packages/protocol/dist packages/core/dist packages/server/dist packages/client/dist packages/cli/dist packages/desktop/out"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
