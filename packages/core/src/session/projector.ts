@@ -162,6 +162,7 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       }
       message.finish = event.finish
       message.completedAt = event.timestamp
+      if (event.error !== undefined) message.error = event.error
       if (event.usage !== undefined) {
         message.usage = event.usage
         state.session = { ...state.session, usage: addUsage(state.session.usage, event.usage) }

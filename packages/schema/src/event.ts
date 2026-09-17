@@ -165,9 +165,18 @@ const MessageEnded = z.object({
   ...durableEnvelope,
   type: z.literal("message.ended"),
   messageID: z.string(),
+  /**
+   * 结束原因。常见取值：
+   * - `stop` / `length` / `tool_calls`：provider 给出的正常结束原因
+   * - `interrupted`：用户中断
+   * - `declined`：用户拒绝了授权请求
+   * - `error`：本轮失败
+   */
   finish: z.string(),
   /** provider 未返回 usage 时为空 */
   usage: Usage.optional(),
+  /** 本轮失败时的错误说明。它是给用户看的，不会重新发回模型。 */
+  error: z.string().optional(),
 })
 
 /** 压缩完成：旧历史被这条检查点消息替代。 */
