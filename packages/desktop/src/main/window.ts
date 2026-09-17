@@ -32,7 +32,14 @@ export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
     title: "EasyCode",
     // 与界面底色一致：窗口出现的瞬间不会闪一下白屏
     backgroundColor: "#ffffff",
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    /**
+     * macOS 上隐藏系统标题栏，改为在页面里自绘一条标题栏。
+     *
+     * 用 hidden 而不是 hiddenInset：后者会把红绿灯按钮往下压，
+     * 与自绘标题栏里文字的位置对不齐。自绘的好处是标题、拖拽区、
+     * 平台留白都能和界面其余部分共用同一套样式。
+     */
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
     webPreferences: {
       preload: options.preloadEntry,
       // 下面三项是安全基线，任何一项都不该为了「方便」而关掉：
