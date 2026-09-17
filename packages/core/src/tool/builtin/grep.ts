@@ -4,7 +4,7 @@ import { glob } from "glob"
 import { z } from "zod"
 
 import { ToolFailure } from "../../errors.js"
-import { ensureWithinWorkspace, resolveToolPath } from "../paths.js"
+import { ensureWithinWorkspace, resolveToolPath, type ResolvedPath } from "../paths.js"
 import { defineTool } from "../tool.js"
 import { DEFAULT_IGNORE } from "./glob.js"
 
@@ -71,8 +71,7 @@ export const grepTool = defineTool({
     if (target) await ensureWithinWorkspace(target, context)
     await context.authorize({ action: "grep", resources: [input.pattern] })
 
-    const root = target?.absolute ?? context.directory
-    const files = await collectFiles(root, input.include)
+    const { files, displayOf } = await collectCandidates(target, input.include, context.directory)
 
     const matches: Match[] = []
     let scanned = 0
@@ -84,7 +83,7 @@ export const grepTool = defineTool({
         break
       }
       scanned += 1
-      const found = await scanFile(file, root, regexp, MAX_MATCHES - matches.length)
+      const found = await scanFile(file, displayOf(file), regexp, MAX_MATCHES - matches.length)
       matches.push(...found)
     }
 
@@ -109,6 +108,37 @@ export const grepTool = defineTool({
 })
 
 /**
+ * 枚举待检索的文件，并给出每个文件用于展示的路径。
+ *
+ * `path` 既可以指向目录，也可以指向单个文件。指向文件时**不能**走 glob：
+ * glob 的 cwd 必须是目录，拿一个文件当 cwd 只会得到零个候选文件，
+ * 于是「文件里明明有这段内容」也会被报告成没有匹配。这种静默的假否定
+ * 比报错更有害：模型会据此认定检索工具坏了，转而用别的方式绕，
+ * 甚至得出「文件里没有这段内容」这种错误的结论。
+ */
+const collectCandidates = async (
+  target: ResolvedPath | undefined,
+  include: string | undefined,
+  directory: string,
+): Promise<{ files: string[]; displayOf: (absolute: string) => string }> => {
+  if (target === undefined) {
+    return { files: await collectFiles(directory, include), displayOf: (absolute) => relative(directory, absolute) }
+  }
+
+  const info = await stat(target.absolute).catch(() => undefined)
+  // 路径不存在时必须明说：报「没有匹配」会让模型以为检索过了
+  if (info === undefined) throw new ToolFailure(`路径不存在：${target.display}`)
+
+  // 指向单个文件时忽略 include：范围已经被缩小到一个文件了
+  if (info.isFile()) return { files: [target.absolute], displayOf: () => target.display }
+
+  return {
+    files: await collectFiles(target.absolute, include),
+    displayOf: (absolute) => relative(target.absolute, absolute),
+  }
+}
+
+/**
  * 枚举候选文件。
  *
  * 用 glob 而不是手写目录遍历：这样 `include` 的语义与 glob 工具完全一致，
@@ -128,7 +158,7 @@ const collectFiles = async (root: string, include: string | undefined): Promise<
 }
 
 /** 检索单个文件，返回匹配行。读取或解码失败时静默跳过。 */
-const scanFile = async (absolute: string, root: string, regexp: RegExp, budget: number): Promise<Match[]> => {
+const scanFile = async (absolute: string, display: string, regexp: RegExp, budget: number): Promise<Match[]> => {
   const info = await stat(absolute).catch(() => undefined)
   if (!info?.isFile() || info.size === 0 || info.size > MAX_FILE_BYTES) return []
 
@@ -137,7 +167,6 @@ const scanFile = async (absolute: string, root: string, regexp: RegExp, budget: 
   // 二进制文件（含 NUL 字节）一律跳过
   if (buffer.subarray(0, 8192).includes(0)) return []
 
-  const display = relative(root, absolute)
   const matches: Match[] = []
 
   const lines = buffer.toString("utf8").split("\n")
