@@ -1,0 +1,24 @@
+{
+  "name": "@easycode/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EasyCode 的命令行入口：直接驱动 Core，不依赖任何界面",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "easycode": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@easycode/core": "*",
+    "@easycode/protocol": "*",
+    "@easycode/schema": "*",
+    "@easycode/server": "*"
+  }
+}
