@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs"
-import { homedir } from "node:os"
 import { resolve } from "node:path"
 
 import type { LLMClientConfig } from "./llm/types.js"
 import { createLogger } from "./log.js"
 import { loadEnvFile } from "./env.js"
+import { expandHome } from "./util/path.js"
 
 const logger = createLogger("config")
 
@@ -38,6 +38,17 @@ const DEFAULT_CONTEXT_WINDOW = 128_000
 
 /** 默认输出预算，与上下文窗口一起决定压缩阈值。 */
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192
+
+/**
+ * 默认数据目录。
+ *
+ * 放在默认工作目录（`~/easy_code`）之外的一个同级目录下，原因有两点：
+ * - 它会被自动创建，而在用户的工作目录里凭空多出一个目录会很突兀
+ * - 会话日志里包含模型看到过的全部内容，不应该出现在被 agent 操作的项目里
+ *
+ * 注意这里保留 `~` 写法，真正的展开在下面统一完成。
+ */
+const DEFAULT_DATA_DIR = "~/easycode/.easycode"
 
 export interface LoadConfigOptions {
   /** 工作目录，用于定位 .env 与解析相对路径 */
@@ -78,7 +89,9 @@ export const loadCoreConfig = (options: LoadConfigOptions = {}): CoreConfig => {
     )
   }
 
-  const dataDir = resolve(readString("EASYCODE_DATA_DIR") ?? resolve(homedir(), ".easycode"))
+  // 路径必须先展开 `~` 再 resolve：resolve 不认识 `~`，
+  // 否则会在当前工作目录下创建一个名叫 `~` 的目录，且不会报错
+  const dataDir = resolve(expandHome(readString("EASYCODE_DATA_DIR") ?? DEFAULT_DATA_DIR))
 
   const config: CoreConfig = {
     baseUrl,

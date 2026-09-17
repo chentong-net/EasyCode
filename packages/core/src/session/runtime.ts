@@ -1,5 +1,4 @@
 import { mkdir } from "node:fs/promises"
-import { homedir } from "node:os"
 import { resolve } from "node:path"
 
 import type { Delivery, DurableEvent, Message, Session } from "@easycode/schema"
@@ -10,6 +9,7 @@ import type { CoreConfig } from "../config.js"
 import type { EventHub } from "../events.js"
 import { newInputID, newSessionID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
+import { expandHome } from "../util/path.js"
 import { applyEvent, createProjectedState, projectEvents, type ProjectedState } from "./projector.js"
 import type { NewDurableEvent, PersistedContext, SessionStore } from "./store.js"
 
@@ -255,7 +255,3 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
 /** 新会话的默认标题。首次输入提升时会被替换成输入内容的摘要。 */
 export const DEFAULT_SESSION_TITLE = "新会话"
-
-/** 展开路径开头的 `~`，让 CLI 可以直接传 `~/easy_code`。 */
-const expandHome = (path: string): string =>
-  path === "~" || path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path
