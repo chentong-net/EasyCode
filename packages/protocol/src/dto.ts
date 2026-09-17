@@ -18,6 +18,13 @@ export const HealthResponse = z.object({
   version: z.string(),
   /** 当前固定使用的模型 id，用于界面展示 */
   model: z.string(),
+  /**
+   * 模型的上下文窗口大小。
+   *
+   * 界面需要它才能把「当前上下文占用了多少」显示成有意义的比例，
+   * 只有 token 数字的话用户无法判断还能不能继续对话。
+   */
+  contextWindow: z.number().int().positive(),
 })
 
 export type HealthResponse = z.infer<typeof HealthResponse>

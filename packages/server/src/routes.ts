@@ -96,6 +96,7 @@ const handleRequest = async (
       ok: true,
       version: API_VERSION,
       model: core.config.model,
+      contextWindow: core.config.contextWindow,
     } satisfies HealthResponse)
     return
   }

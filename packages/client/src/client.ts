@@ -70,7 +70,7 @@ export interface EventStreamOptions {
 
 export interface EasyCodeClient {
   /** 健康检查。桌面端主进程用它判断 sidecar 是否就绪。 */
-  health(signal?: AbortSignal): Promise<{ ok: true; version: string; model: string }>
+  health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
   sessions: {
