@@ -25,10 +25,24 @@ export const Sidebar = ({ store }: { store: EasyCodeStore }) => {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <span className="brand">EasyCode</span>
-        <button type="button" className="btn btn-small" onClick={() => setCreating((value) => !value)}>
-          {creating ? "收起" : "新建会话"}
+      {/*
+        品牌区同时是窗口拖拽区。macOS 用隐藏式标题栏，左上角被系统画了红绿灯按钮，
+        因此这一块的内容需要在样式里让出位置（见 styles.css 中针对 darwin 的规则）。
+      */}
+      <div className="sidebar-brand">
+        <span className="brand-mark" aria-hidden>
+          E
+        </span>
+        <span className="brand-name">EasyCode</span>
+      </div>
+
+      <div className="sidebar-actions">
+        <button
+          type="button"
+          className={`btn btn-block${creating ? " btn-active" : ""}`}
+          onClick={() => setCreating((value) => !value)}
+        >
+          {creating ? "取消新建" : "＋ 新建会话"}
         </button>
       </div>
 
@@ -52,14 +66,9 @@ export const Sidebar = ({ store }: { store: EasyCodeStore }) => {
             spellCheck={false}
           />
           <p className="field-hint">以 ~ 开头表示用户主目录。目录不存在时会自动创建。</p>
-          <div className="new-session-actions">
-            <button type="submit" className="btn btn-primary btn-small">
-              创建会话
-            </button>
-            <button type="button" className="btn btn-small" onClick={() => setCreating(false)}>
-              取消
-            </button>
-          </div>
+          <button type="submit" className="btn btn-primary btn-block">
+            创建会话
+          </button>
         </form>
       )}
 
@@ -67,7 +76,7 @@ export const Sidebar = ({ store }: { store: EasyCodeStore }) => {
         {store.loading && <div className="session-empty">正在加载…</div>}
 
         {!store.loading && store.sessions.length === 0 && (
-          <div className="session-empty">还没有会话。点击右上角的「新建会话」开始。</div>
+          <div className="session-empty">还没有会话。点击上面的「新建会话」开始。</div>
         )}
 
         {store.sessions.map((session) => (
