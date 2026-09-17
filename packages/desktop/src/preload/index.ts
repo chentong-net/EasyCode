@@ -1,18 +1,24 @@
-import { contextBridge } from "electron"
+import { contextBridge, ipcRenderer } from "electron"
+
+import { IPC_SELECT_DIRECTORY, type SelectDirectoryRequest } from "../shared/ipc"
 
 /**
  * 预加载脚本。
  *
- * 它是渲染进程与主进程之间唯一的接口，而且**只出不进**：
- * 主进程把「服务地址 + 访问令牌」通过命令行参数塞进来，这里取出后挂到 window 上。
- * 渲染进程没有任何回调可以触发主进程行为，也不需要 ——
- * 所有能力都由 Core 的 HTTP 接口提供。
+ * 它向渲染层暴露两样东西：
+ * 1. 三个常量（Core 服务地址、访问令牌、用户主目录），由主进程通过命令行参数一次性注入
+ * 2. 一个函数（选择工作目录），走 IPC 调主进程的系统弹窗
  *
- * 为什么用命令行参数而不是 IPC：这是一个一次性的常量注入，
- * 注入完就再也不需要通信了。为它开一条 IPC 通道等于白白多一套需要维护的协议。
+ * 除这个函数之外，渲染进程无法触发主进程的任何行为——会话、消息、工具调用
+ * 全部走 Core 的 HTTP 接口。之所以目录选择必须例外，是因为渲染进程在沙箱中运行，
+ * 既拿不到绝对路径，也没有任何 Web 标准 API 能唤起系统弹窗。
+ *
+ * 注意这里不能 import 任何 Node 内置模块：预加载脚本运行在沙箱里，
+ * 只允许加载 electron、events、timers、url。因此主目录也只能由主进程注入，
+ * 而不是在这里调用 os.homedir()。
  */
 
-const ARG_PREFIX = "--easycode-server-"
+const ARG_PREFIX = "--easycode-"
 
 const readArgument = (name: string): string => {
   const prefix = `${ARG_PREFIX}${name}=`
@@ -20,8 +26,8 @@ const readArgument = (name: string): string => {
   return found === undefined ? "" : found.slice(prefix.length)
 }
 
-const serverUrl = readArgument("url")
-const serverToken = readArgument("token")
+const serverUrl = readArgument("server-url")
+const serverToken = readArgument("server-token")
 
 if (serverUrl.length === 0) {
   // 走到这里说明主进程没有注入地址，界面只会报「连不上服务」。
@@ -34,13 +40,29 @@ contextBridge.exposeInMainWorld(
   Object.freeze({
     serverUrl,
     serverToken,
+
     /**
      * 运行平台。
      *
      * 界面需要它来适配窗口装饰：macOS 用的是隐藏式标题栏，左上角被系统画了
      * 红绿灯按钮，内容必须让出那块位置；Windows 与 Linux 则不需要。
-     * 这类信息只能由主进程侧提供，渲染进程无法自行推断。
      */
     platform: process.platform,
+
+    /**
+     * 用户主目录。
+     *
+     * 界面用它把绝对路径显示成 `~/xxx`，并在用户还没选过目录时把默认值
+     * 展开成可供系统弹窗使用的绝对路径。
+     */
+    homeDirectory: readArgument("home"),
+
+    /**
+     * 打开系统原生的目录选择框。
+     *
+     * 用户取消时返回 undefined。这是渲染层唯一能调用主进程的能力，见 shared/ipc.ts。
+     */
+    selectDirectory: (request?: SelectDirectoryRequest): Promise<string | undefined> =>
+      ipcRenderer.invoke(IPC_SELECT_DIRECTORY, request) as Promise<string | undefined>,
   }),
 )

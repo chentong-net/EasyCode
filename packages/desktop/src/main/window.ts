@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from "electron"
+import { app, BrowserWindow, shell } from "electron"
 
 import { log } from "./log"
 import { APP_ENTRY_URL, APP_SCHEME } from "./protocol"
@@ -7,9 +7,10 @@ import { APP_ENTRY_URL, APP_SCHEME } from "./protocol"
  * 主窗口。
  *
  * 渲染进程与 Core 之间没有任何直连：所有能力都通过 HTTP 接口暴露，
- * 主进程只负责把「服务地址 + 访问令牌」这两样东西交给预加载脚本。
- * 这样渲染进程就不需要（也无法）接触文件系统与进程 —— 它的权限被降到了
- * 一个普通网页的水平，即使界面代码出了漏洞，能造成的破坏也限于接口本身。
+ * 主进程只负责把「服务地址、访问令牌、用户主目录」这几样东西交给预加载脚本。
+ * 渲染进程唯一能调用主进程的能力是系统目录选择框（见 main/ipc.ts），
+ * 除此之外它的权限被降到一个普通网页的水平：即使界面代码出了漏洞，
+ * 能造成的破坏也限于接口本身。
  */
 
 export interface MainWindowOptions {
@@ -31,8 +32,6 @@ export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
     title: "EasyCode",
     // 与界面底色一致：窗口出现的瞬间不会闪一下白屏
     backgroundColor: "#ffffff",
-    // macOS 上用隐藏式标题栏，让侧边栏区域可以延伸到顶部。
-    // 界面需要据此为左上角的红绿灯按钮让出位置，平台信息由 preload 传给渲染层
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: options.preloadEntry,
@@ -41,11 +40,12 @@ export const createMainWindow = (options: MainWindowOptions): BrowserWindow => {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // 配置传递的唯一通道。preload 从 process.argv 里取出这两项后交给渲染层，
-      // 单向注入，渲染进程无法反向调用主进程的任何能力
+      // 配置传递的唯一通道。preload 从 process.argv 里取出这几项后交给渲染层，
+      // 渲染进程无法反向调用主进程的任何业务能力
       additionalArguments: [
         `--easycode-server-url=${options.serverUrl}`,
         `--easycode-server-token=${options.serverToken}`,
+        `--easycode-home=${app.getPath("home")}`,
       ],
     },
   })

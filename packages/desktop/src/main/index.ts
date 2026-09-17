@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog } from "electron"
 
+import { registerIpcHandlers } from "./ipc"
 import { log, setLogFile } from "./log"
 import { resolveMainPaths, type MainPaths } from "./paths"
 import { registerAppScheme, serveRendererFiles } from "./protocol"
@@ -34,6 +35,7 @@ const bootstrap = async (): Promise<void> => {
   })
 
   serveRendererFiles(paths.rendererDir)
+  registerIpcHandlers()
 
   sidecar = await startSidecar({
     entry: paths.sidecarEntry,
