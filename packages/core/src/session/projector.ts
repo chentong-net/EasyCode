@@ -31,6 +31,13 @@ export interface ProjectedState {
   lastSeq: number
   /** 按 ID 索引消息，避免查找 part 时线性扫描 */
   messageIndex: Map<string, Message>
+  /**
+   * 消息 ID → 产生它的事件序号。
+   *
+   * 历史投影需要据此判断某条系统消息是否已经被折进 baseline（序号 ≤ baselineSeq），
+   * 消息本身不带序号，所以单独维护一张表。
+   */
+  messageSeq: Map<string, number>
   /** 工具调用 ID → 它所在的消息与 part 下标 */
   toolIndex: Map<string, { messageID: string; index: number }>
 }
@@ -43,6 +50,7 @@ export const createProjectedState = (session: Session): ProjectedState => ({
   pendingPermissions: new Map(),
   lastSeq: 0,
   messageIndex: new Map(),
+  messageSeq: new Map(),
   toolIndex: new Map(),
 })
 
@@ -81,6 +89,10 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       // 会话级失败只作为事件呈现给 UI，不改变投影出来的消息历史
       break
 
+    case "session.todos":
+      state.session = { ...state.session, todos: event.todos, updatedAt: event.timestamp }
+      break
+
     case "input.admitted":
       state.pendingInputs.set(event.inputID, { text: event.text, delivery: event.delivery })
       break
@@ -92,23 +104,31 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
         // 日志被截断时可能出现「只见提升、不见接纳」，此时文本已经无从得知
         logger.warn("输入提升事件找不到对应的接纳记录", { inputID: event.inputID })
       }
-      pushMessage(state, {
-        id: event.messageID,
-        role: "user",
-        createdAt: event.timestamp,
-        parts: [{ type: "text", text: input?.text ?? "" }],
-      })
+      pushMessage(
+        state,
+        {
+          id: event.messageID,
+          role: "user",
+          createdAt: event.timestamp,
+          parts: [{ type: "text", text: input?.text ?? "" }],
+        },
+        event.seq,
+      )
       break
     }
 
     case "message.started":
-      pushMessage(state, {
-        id: event.messageID,
-        role: "assistant",
-        model: event.model,
-        createdAt: event.timestamp,
-        parts: [],
-      })
+      pushMessage(
+        state,
+        {
+          id: event.messageID,
+          role: "assistant",
+          model: event.model,
+          createdAt: event.timestamp,
+          parts: [],
+        },
+        event.seq,
+      )
       break
 
     case "part.text":
@@ -150,22 +170,30 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
     }
 
     case "compaction.ended":
-      pushMessage(state, {
-        id: event.messageID,
-        role: "compaction",
-        createdAt: event.timestamp,
-        text: event.text,
-        recentMessageIDs: event.recentMessageIDs,
-      })
+      pushMessage(
+        state,
+        {
+          id: event.messageID,
+          role: "compaction",
+          createdAt: event.timestamp,
+          text: event.text,
+          recentMessageIDs: event.recentMessageIDs,
+        },
+        event.seq,
+      )
       break
 
     case "context.updated":
-      pushMessage(state, {
-        id: event.messageID,
-        role: "system",
-        createdAt: event.timestamp,
-        text: event.text,
-      })
+      pushMessage(
+        state,
+        {
+          id: event.messageID,
+          role: "system",
+          createdAt: event.timestamp,
+          text: event.text,
+        },
+        event.seq,
+      )
       break
 
     case "permission.asked":
@@ -204,9 +232,10 @@ const toToolState = (event: Extract<DurableEvent, { type: "tool.settled" }>): To
 }
 
 /** 追加一条消息，并登记到索引里。 */
-const pushMessage = (state: ProjectedState, message: Message): void => {
+const pushMessage = (state: ProjectedState, message: Message, seq: number): void => {
   state.messages.push(message)
   state.messageIndex.set(message.id, message)
+  state.messageSeq.set(message.id, seq)
 }
 
 /** 写入消息中指定下标的 part。下标由发布方在投影时分配，保证是连续递增的。 */

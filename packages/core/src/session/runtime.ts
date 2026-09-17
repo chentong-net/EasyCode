@@ -91,7 +91,11 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
         // 会话元信息变化时同步派生缓存，让侧边栏列表能立刻反映最新标题与用量。
         // 其它事件不影响列表展示，不需要付这次写盘成本。
-        if (stored.type === "session.created" || stored.type === "session.updated") {
+        if (
+          stored.type === "session.created" ||
+          stored.type === "session.updated" ||
+          stored.type === "session.todos"
+        ) {
           await deps.store.writeSession(state.session)
         }
 
@@ -190,6 +194,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       createdAt: now,
       updatedAt: now,
       usage: zeroUsage(),
+      todos: [],
     }
 
     const handle = createHandle(createProjectedState(session))
