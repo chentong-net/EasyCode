@@ -101,12 +101,22 @@ export const defineTool = <Input>(config: ToolConfig<Input>): Tool<Input> => ({
 /**
  * 生成发给模型的工具定义。
  *
- * `$refStrategy: "none"` 是关键：默认行为会把重复的子 schema 抽成 `$ref`，
- * 而不少 OpenAI 兼容实现不支持 `$ref`，会在解析工具定义时直接报错。
- * 代价是定义体积略大，但工具定义本来就不多。
+ * 两个关键参数：
+ *
+ * - `target: "jsonSchema7"`：必须使用 draft-7 语义。OpenAPI 3.0 风格下
+ *   `.positive()` 会生成 `exclusiveMinimum: true`（布尔），而 draft-7 要求它是
+ *   **数字**（`exclusiveMinimum: 0`）。DeepSeek 等实现会直接以
+ *   「true is not of type "number"」拒绝整个请求，且错误信息指向的是工具名，
+ *   很容易被误判成工具本身有问题。
+ * - `$refStrategy: "none"`：默认行为会把重复的子 schema 抽成 `$ref`，
+ *   而不少 OpenAI 兼容实现不支持 `$ref`，会在解析工具定义时直接报错。
+ *   代价是定义体积略大，但工具定义本来就不多。
  */
 export const toModelDefinition = (tool: Tool<unknown>): ToolDefinition => {
-  const schema = zodToJsonSchema(tool.input, { target: "openApi3", $refStrategy: "none" }) as Record<string, unknown>
+  const schema = zodToJsonSchema(tool.input, {
+    target: "jsonSchema7",
+    $refStrategy: "none",
+  }) as Record<string, unknown>
 
   // 一些实现会因为 schema 里出现未知关键字而拒绝请求，把非必要的元字段去掉
   delete schema.$schema
