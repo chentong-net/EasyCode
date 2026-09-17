@@ -1,0 +1,407 @@
+import type { EasyCodeClient } from "@easycode/client"
+import {
+  isDurableEvent,
+  type Event,
+  type Message,
+  type PermissionReply,
+  type PermissionRequest,
+  type Session,
+} from "@easycode/schema"
+import { useCallback, useEffect, useMemo, useState } from "react"
+
+import { describeError } from "./format"
+
+/**
+ * 界面的会话状态。
+ *
+ * 核心决策：**界面不自己实现一遍事件投影**。
+ *
+ * Core 里已经有一条「事件日志 → 消息列表」的投影规则，如果界面为了实时显示
+ * 再实现一遍，两份实现迟早会因为某次改动而分叉，症状是「刷新一下就好了」这类
+ * 最难排查的问题。这里的做法是：
+ *
+ * - 持久化事件到达 → 延迟一小段时间后重新向 Core 拉取投影结果
+ *   （延迟是为了把一次回合里的高频事件合并成一次请求）
+ * - 流式增量 → 直接叠加在拉取结果之上，因为它本来就是「还没落盘的临时内容」
+ *
+ * 代价是每次回合结束前会有若干次本地 HTTP 请求。这些请求不落磁盘
+ * （会话已经在内存里），代价远小于维护两套投影逻辑。
+ */
+
+/** 事件到达后延迟多久重新拉取。80ms 足够把一次工具调用的多条事件合并成一批。 */
+const REFETCH_DELAY_MS = 80
+
+/** 流式增量缓冲。同一时刻只可能有一条助手消息在生成，因此只保存一条。 */
+interface DeltaBuffer {
+  messageID: string
+  /** part 下标 → 该 part 已累积的文本 */
+  parts: Map<number, { kind: "text" | "reasoning"; text: string }>
+}
+
+export interface EasyCodeStore {
+  /** 全部会话，按更新时间倒序 */
+  sessions: Session[]
+  currentSessionID: string | undefined
+  currentSession: Session | undefined
+  /** 当前会话的对话消息（只含用户与助手），已叠加流式增量 */
+  messages: Message[]
+  /** 回合是否正在运行 */
+  running: boolean
+  /** 待用户回应的授权请求 */
+  pendingPermissions: PermissionRequest[]
+  /** 事件流是否连通。断开时界面顶部会给出提示。 */
+  connected: boolean
+  loading: boolean
+  error: string | undefined
+  /** 模型上下文窗口大小，用于把 token 占用显示成比例 */
+  contextWindow: number | undefined
+
+  selectSession(sessionID: string): void
+  createSession(directory: string): Promise<void>
+  send(text: string): Promise<void>
+  interrupt(): Promise<void>
+  replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
+  clearError(): void
+}
+
+export const useEasyCode = (client: EasyCodeClient): EasyCodeStore => {
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [currentSessionID, setCurrentSessionID] = useState<string | undefined>()
+  const [currentSession, setCurrentSession] = useState<Session | undefined>()
+  const [messages, setMessages] = useState<Message[]>([])
+  const [deltas, setDeltas] = useState<DeltaBuffer | undefined>()
+  const [running, setRunning] = useState(false)
+  const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([])
+  const [connected, setConnected] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | undefined>()
+  /** 自增即可触发会话列表重新拉取，比在每次变更处手写更新逻辑更不容易漏 */
+  const [sessionListToken, setSessionListToken] = useState(0)
+  const [contextWindow, setContextWindow] = useState<number | undefined>()
+
+  /* ---------------------------------------------------------------------- */
+  /* 运行环境信息                                                            */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        // 上下文窗口是模型的固有属性，进程生命周期内不会变，拉一次即可
+        const health = await client.health(controller.signal)
+        if (!controller.signal.aborted) setContextWindow(health.contextWindow)
+      } catch (cause) {
+        // 拿不到不影响使用，只是用量显示退化成只有绝对数字
+        if (!controller.signal.aborted) console.warn("[easycode] 无法获取模型信息", cause)
+      }
+    })()
+    return () => controller.abort()
+  }, [client])
+
+  /* ---------------------------------------------------------------------- */
+  /* 会话列表                                                                */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const list = await client.sessions.list(controller.signal)
+        if (controller.signal.aborted) return
+        setSessions(list)
+        setLoading(false)
+        // 首次进入时自动打开最近使用的会话，省掉一次点击
+        setCurrentSessionID((previous) => previous ?? list[0]?.id)
+      } catch (cause) {
+        if (controller.signal.aborted) return
+        setError(describeError(cause))
+        setLoading(false)
+      }
+    })()
+    return () => controller.abort()
+  }, [client, sessionListToken])
+
+  /* ---------------------------------------------------------------------- */
+  /* 当前会话：初次拉取 + 事件订阅                                            */
+  /* ---------------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (currentSessionID === undefined) {
+      setMessages([])
+      setDeltas(undefined)
+      setCurrentSession(undefined)
+      setPendingPermissions([])
+      setRunning(false)
+      return
+    }
+
+    const controller = new AbortController()
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    /** 是否已有一次拉取在飞。有的话把新的请求折叠成「结束后再拉一次」。 */
+    let inFlight = false
+    let again = false
+
+    // 切换会话时先清空派生状态。事件的完整重放会把它们重新填对，
+    // 不清的话会短暂显示上一个会话的运行状态与审批卡片
+    setDeltas(undefined)
+    setRunning(false)
+    setPendingPermissions([])
+
+    const load = async (): Promise<void> => {
+      if (inFlight) {
+        again = true
+        return
+      }
+      inFlight = true
+      try {
+        const [nextMessages, nextPermissions, nextSession] = await Promise.all([
+          client.sessions.messages(currentSessionID),
+          client.sessions.permissions(currentSessionID),
+          client.sessions.get(currentSessionID),
+        ])
+        if (disposed) return
+        setMessages(nextMessages)
+        setPendingPermissions(nextPermissions)
+        setCurrentSession(nextSession)
+      } catch (cause) {
+        if (!disposed) setError(describeError(cause))
+      } finally {
+        inFlight = false
+        if (again) {
+          again = false
+          void load()
+        }
+      }
+    }
+
+    /** 合并短时间内的多次重建请求。 */
+    const scheduleLoad = (delay = REFETCH_DELAY_MS): void => {
+      if (disposed || timer !== undefined) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void load()
+      }, delay)
+    }
+
+    /** 立刻重建，并丢弃尚在等待的延迟任务。 */
+    const loadNow = (): void => {
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        timer = undefined
+      }
+      void load()
+    }
+
+    const appendDelta = (messageID: string, index: number, kind: "text" | "reasoning", text: string): void => {
+      setDeltas((previous) => {
+        const base = previous !== undefined && previous.messageID === messageID ? previous : undefined
+        const parts = new Map(base?.parts ?? [])
+        parts.set(index, { kind, text: (parts.get(index)?.text ?? "") + text })
+        return { messageID, parts }
+      })
+    }
+
+    const handleEvent = (event: Event): void => {
+      // 能收到事件就说明链路是通的（包括自动重连成功之后）
+      setConnected(true)
+
+      if (!isDurableEvent(event)) {
+        switch (event.type) {
+          case "text.delta":
+            appendDelta(event.messageID, event.index, "text", event.text)
+            return
+          case "reasoning.delta":
+            appendDelta(event.messageID, event.index, "reasoning", event.text)
+            return
+          case "tool.input.delta":
+            // 工具入参的实时分片不展示：权威值很快会随 tool.called 一起到达
+            return
+        }
+        return
+      }
+
+      switch (event.type) {
+        case "run.started":
+          setRunning(true)
+          return
+
+        case "run.idle":
+          // 回合彻底结束：丢掉流式缓冲，并立刻同步一次最终结果
+          setRunning(false)
+          setDeltas(undefined)
+          loadNow()
+          return
+
+        case "permission.asked":
+        case "permission.replied":
+          // 审批状态需要尽快反映到界面上，不能等延迟合并
+          scheduleLoad(0)
+          return
+
+        case "session.updated":
+        case "session.todos":
+          setSessionListToken((token) => token + 1)
+          scheduleLoad()
+          return
+
+        default:
+          scheduleLoad()
+      }
+    }
+
+    void (async () => {
+      try {
+        // 先订阅再拉取：订阅时会从头重放全部持久化事件，
+        // 因此不会漏掉「拉取」与「订阅」之间产生的事件
+        const stream = client.sessions.events(currentSessionID, { signal: controller.signal })
+        await load()
+        if (disposed) return
+
+        for await (const event of stream) {
+          if (disposed) break
+          handleEvent(event)
+        }
+      } catch (cause) {
+        if (disposed || controller.signal.aborted) return
+        // 客户端会自动重连，这里只把状态反映到界面上
+        setConnected(false)
+        setError(describeError(cause))
+      }
+    })()
+
+    return () => {
+      disposed = true
+      controller.abort()
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [client, currentSessionID])
+
+  /* ---------------------------------------------------------------------- */
+  /* 对外动作                                                                */
+  /* ---------------------------------------------------------------------- */
+
+  const selectSession = useCallback((sessionID: string) => {
+    setError(undefined)
+    setCurrentSessionID(sessionID)
+  }, [])
+
+  const createSession = useCallback(
+    async (directory: string) => {
+      try {
+        const session = await client.sessions.create({ directory })
+        // 列表与当前会话同时更新：不用等下一次拉取，点完立刻就能用
+        setSessions((previous) => [session, ...previous])
+        setCurrentSessionID(session.id)
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client],
+  )
+
+  const send = useCallback(
+    async (text: string) => {
+      if (currentSessionID === undefined) return
+      try {
+        await client.sessions.prompt(currentSessionID, { text })
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client, currentSessionID],
+  )
+
+  const interrupt = useCallback(async () => {
+    if (currentSessionID === undefined) return
+    try {
+      await client.sessions.interrupt(currentSessionID)
+    } catch (cause) {
+      setError(describeError(cause))
+    }
+  }, [client, currentSessionID])
+
+  const replyPermission = useCallback(
+    async (requestID: string, reply: PermissionReply, feedback?: string) => {
+      if (currentSessionID === undefined) return
+      try {
+        await client.sessions.replyPermission(currentSessionID, requestID, {
+          reply,
+          ...(feedback === undefined ? {} : { feedback }),
+        })
+        // 本地先摘掉卡片，避免用户重复点击；随后的事件会把状态对齐
+        setPendingPermissions((previous) => previous.filter((request) => request.id !== requestID))
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client, currentSessionID],
+  )
+
+  const clearError = useCallback(() => setError(undefined), [])
+
+  /* ---------------------------------------------------------------------- */
+  /* 派生数据                                                                */
+  /* ---------------------------------------------------------------------- */
+
+  const visibleMessages = useMemo(
+    () =>
+      messages.filter(
+        (message): message is Extract<Message, { role: "user" | "assistant" }> =>
+          message.role === "user" || message.role === "assistant",
+      ),
+    [messages],
+  )
+
+  const mergedMessages = useMemo(() => mergeDeltas(visibleMessages, deltas), [visibleMessages, deltas])
+
+  return {
+    sessions,
+    currentSessionID,
+    currentSession,
+    messages: mergedMessages,
+    running,
+    pendingPermissions,
+    connected,
+    loading,
+    error,
+    contextWindow,
+    selectSession,
+    createSession,
+    send,
+    interrupt,
+    replyPermission,
+    clearError,
+  }
+}
+
+/**
+ * 把流式增量叠加到已投影的消息上。
+ *
+ * 冲突规则：同一个 part 同时有权威值与增量时取更长的那个。
+ * 权威值（落盘的 part）一定不比增量短，因为它是在增量结束后写下的；
+ * 增量在长回复过程中是唯一的数据来源，因为此时 part 还没有落盘。
+ * 取较长者让这两个阶段的切换不会出现文字回退。
+ */
+const mergeDeltas = (messages: Message[], deltas: DeltaBuffer | undefined): Message[] => {
+  if (deltas === undefined) return messages
+
+  const index = messages.findIndex((message) => message.id === deltas.messageID)
+  if (index === -1) return messages
+
+  const message = messages[index]
+  if (message === undefined || message.role !== "assistant") return messages
+
+  const parts = [...message.parts]
+  for (const [partIndex, delta] of deltas.parts) {
+    const existing = parts[partIndex]
+    const authoritative =
+      existing !== undefined && (existing.type === "text" || existing.type === "reasoning") ? existing.text : ""
+    const text = authoritative.length >= delta.text.length ? authoritative : delta.text
+    parts[partIndex] = delta.kind === "text" ? { type: "text", text } : { type: "reasoning", text }
+  }
+
+  const merged = [...messages]
+  merged[index] = { ...message, parts }
+  return merged
+}
