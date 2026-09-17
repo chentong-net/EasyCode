@@ -1,0 +1,40 @@
+# electron-builder 打包配置。
+#
+# 前置条件：先在 packages/desktop 下执行 npm run build。
+# 打包产物只包含 dist 目录本身 —— 主进程、预加载脚本与 sidecar 都已经被
+# esbuild 打成单文件，渲染层被 Vite 打包，因此不需要把 node_modules 装进应用包。
+# 这一点直接决定了安装包的体积和启动速度。
+
+appId: com.easycode.desktop
+productName: EasyCode
+copyright: EasyCode
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - package.json
+
+# sidecar 必须解包到 asar 之外：Node 无法直接执行 asar 归档里的脚本，
+# 而 electron 的 utilityProcess.fork 需要的是一个真实存在的文件路径。
+asarUnpack:
+  - dist/sidecar/**
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+  # 没有做代码签名与公证，因此不开启 hardened runtime 相关的强化项。
+  # 用户首次打开时需要在「系统设置 → 隐私与安全性」中放行。
+  identity: null
+
+win:
+  target:
+    - nsis
+
+linux:
+  category: Development
+  target:
+    - AppImage
