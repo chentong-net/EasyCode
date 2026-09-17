@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve } from "node:path"
 
+import { expandHome } from "../util/path.js"
 import type { ToolContext } from "./tool.js"
 
 /**
@@ -20,7 +21,9 @@ export interface ResolvedPath {
 }
 
 export const resolveToolPath = (directory: string, input: string): ResolvedPath => {
-  const absolute = resolve(directory, input)
+  // 先展开 `~`：模型确实会写出 `~/xxx` 这种路径，
+  // 不展开的话它会被当成工作目录下一个名叫 `~` 的子目录，静默地读错位置
+  const absolute = resolve(directory, expandHome(input))
   const relativePath = relative(directory, absolute)
   const external = relativePath.startsWith("..") || isAbsolute(relativePath)
 
