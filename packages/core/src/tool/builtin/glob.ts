@@ -32,6 +32,9 @@ export const DEFAULT_IGNORE = [
   "**/__pycache__/**",
   "**/target/**",
   "**/.cache/**",
+  // EasyCode 自己的数据目录。会话日志里存着模型看到过的全部内容，
+  // 被 agent 检索到既是纯粹的噪音，也可能把敏感信息重新喂回上下文
+  "**/.easycode/**",
 ]
 
 const inputSchema = z.object({
