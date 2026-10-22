@@ -133,19 +133,19 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
   ): Promise<CompactionOutcome> => {
     const state = input.handle.state
     const history = selectHistoryMessages(state, input.baselineSeq)
-    const { head, tail } = splitHistory(history, options.keepTokens)
+    const previous = history.find((message): message is Extract<Message, { role: "compaction" }> =>
+      message.role === "compaction",
+    )
+    const candidates = history.filter((message) => message.role !== "compaction")
+    const { head, tail } = splitHistory(candidates, options.keepTokens)
 
     if (head.length === 0 || tail.length === 0) {
       logger.warn("历史长度不足以压缩，跳过", { sessionID: input.handle.id, head: head.length, tail: tail.length })
       return { status: "failed", reason: "nothing_to_compact", beforeTokens, attempts: 1, usedFallback: false }
     }
 
-    // 如果 head 里已经存在上一次的检查点，把它的摘要作为「已有摘要」传进去做增量合并，
-    // 避免每次都从零总结导致早期信息被逐次稀释
-    const previous = head.find((message): message is Extract<Message, { role: "compaction" }> =>
-      message.role === "compaction",
-    )
-    const subject = previous ? head.filter((message) => message !== previous) : head
+    // 已有检查点作为摘要输入，但不混入待压缩消息和保留区。
+    const subject = head
 
     const summary = await summarize({ ...input, previousSummary: previous?.text }, subject)
     if (summary === undefined) {
@@ -203,47 +203,53 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       return undefined
     }
 
-    let text = ""
-    let finish = ""
-    let usage = undefined as Parameters<typeof addUsage>[0] | undefined
+    const run = async (userPrompt: string): Promise<{ text: string; finish: string } | undefined> => {
+      let text = ""
+      let finish = ""
+      let usage = undefined as Parameters<typeof addUsage>[0] | undefined
 
-    try {
-      for await (const event of deps.llm.stream({
-        model: input.handle.state.session.model,
-        system: [SUMMARY_SYSTEM_PROMPT],
-        messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
-        // 摘要请求不带工具：避免模型在总结时又去调用工具
-        tools: [],
-        maxOutputTokens: options.summaryOutputTokens,
-        sessionID: input.handle.id,
-        ...(input.signal ? { signal: input.signal } : {}),
-      })) {
-        if (event.type === "text.delta") text += event.text
-        if (event.type === "usage") usage = event.usage
-        if (event.type === "finish") finish = event.reason
+      try {
+        for await (const event of deps.llm.stream({
+          model: input.handle.state.session.model,
+          system: [SUMMARY_SYSTEM_PROMPT],
+          messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
+          // 摘要请求不带工具：避免模型在总结时又去调用工具
+          tools: [],
+          maxOutputTokens: options.summaryOutputTokens,
+          sessionID: input.handle.id,
+          ...(input.signal ? { signal: input.signal } : {}),
+        })) {
+          if (event.type === "text.delta") text += event.text
+          if (event.type === "usage") usage = event.usage
+          if (event.type === "finish") finish = event.reason
+        }
+      } catch (error) {
+        logger.warn("摘要请求失败，本次不压缩", { sessionID: input.handle.id, error: describeError(error) })
+        return undefined
       }
-    } catch (error) {
-      logger.warn("摘要请求失败，本次不压缩", { sessionID: input.handle.id, error: describeError(error) })
-      return undefined
+
+      if (usage) {
+        // 摘要调用也是真实开销，计入会话累计用量，否则统计会偏低
+        await input.handle.append({
+          type: "session.updated",
+          sessionID: input.handle.id,
+          timestamp: Date.now(),
+          usage: addUsage(input.handle.state.session.usage, usage),
+        })
+      }
+      return { text: text.trim(), finish }
     }
 
-    if (usage) {
-      // 摘要调用也是真实开销，计入会话累计用量，否则统计会偏低
-      await input.handle.append({
-        type: "session.updated",
-        sessionID: input.handle.id,
-        timestamp: Date.now(),
-        usage: addUsage(input.handle.state.session.usage, usage),
-      })
-    }
+    const first = await run(prompt)
+    if (!first || first.finish === "length" || first.text.length === 0) return undefined
+    if (hasSummaryTemplate(first.text)) return first.text
 
-    const trimmed = text.trim()
-    if (trimmed.length === 0) {
-      logger.warn("摘要结果为空，本次不压缩", { sessionID: input.handle.id, finish })
-      return undefined
-    }
+    const corrected = await run(`${prompt}\n\n${SUMMARY_NUDGE}`)
+    if (!corrected || corrected.finish === "length" || corrected.text.length === 0) return undefined
+    if (hasSummaryTemplate(corrected.text)) return corrected.text
 
-    return trimmed
+    logger.warn("摘要没有遵循要求的工作记忆模板", { sessionID: input.handle.id })
+    return undefined
   }
 
   return { budget: () => ({ ...options }), estimate, compactIfNeeded, compactAfterOverflow }
@@ -310,6 +316,26 @@ const splitHistory = (history: Message[], keepTokens: number): { head: Message[]
     splitIndex = index
   }
 
+  // 从用户消息开始保留一个完整交换，避免把问题和回复拆到摘要与原文两侧。
+  if (splitIndex > 0 && splitIndex < history.length) {
+    for (let index = splitIndex; index >= 0; index -= 1) {
+      if (history[index]?.role === "user") {
+        splitIndex = index
+        break
+      }
+    }
+  }
+
+  // 最后一条消息本身超过保留预算时，仍保留最近的完整交换，避免模型失去当前问题。
+  if (splitIndex >= history.length) {
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      if (history[index]?.role === "user") {
+        splitIndex = index
+        break
+      }
+    }
+  }
+
   return { head: history.slice(0, splitIndex), tail: history.slice(splitIndex) }
 }
 
@@ -363,10 +389,10 @@ const renderTranscript = (messages: Message[]): string =>
             if (part.type === "tool") {
               return `[工具调用 ${part.name}]\n入参：${JSON.stringify(part.input ?? {})}\n结果：${truncate(toolOutputText(part), TRANSCRIPT_TOOL_OUTPUT_LIMIT)}`
             }
-            if (part.type === "reasoning") return `[思考]\n${part.text}`
+            if (part.type === "reasoning") return ""
             return textOfPart(part)
           })
-          return `[助手]\n${parts.join("\n")}`
+          return `[助手]\n${parts.filter(Boolean).join("\n")}`
         }
         case "system":
           return `[系统提示]\n${message.text}`
@@ -376,27 +402,53 @@ const renderTranscript = (messages: Message[]): string =>
     })
     .join("\n\n")
 
-const truncate = (text: string, limit: number): string =>
-  text.length <= limit ? text : `${text.slice(0, limit)}\n...（已截断，原长 ${text.length} 字符）`
+const truncate = (text: string, limit: number): string => {
+  if (text.length <= limit) return text
+  const head = Math.floor(limit * 0.65)
+  const tail = Math.max(limit - head, 0)
+  return `${text.slice(0, head)}\n...（中间已截断，原长 ${text.length} 字符）...\n${text.slice(-tail)}`
+}
 
 /** 摘要请求的系统提示词。 */
-const SUMMARY_SYSTEM_PROMPT = `你是一个对话压缩助手，负责把长对话压缩成结构化摘要，供后续继续工作使用。
+const SUMMARY_SYSTEM_PROMPT = `你是一个 Coding Agent 的工作记忆压缩器，负责把较早对话整理成可供后续继续工作的结构化检查点。
 
 要求：
-- 保留对后续工作有用的全部信息：用户目标、已达成的决定、已完成的改动、当前状态、未解决的问题、涉及的文件与关键位置。
-- 丢弃寒暄、重复的尝试过程、已经作废的方案。
-- 摘要会被直接当作已发生的事实使用，因此不要写「根据对话」这类元描述，直接陈述结论。
-- 缺失的信息写「无」，不要编造。
+- 只保留后续工作必需的信息，每条尽量使用单行短句。
+- 保留原始目标、仍然有效的约束、已做出的决定、已完成和进行中的工作。
+- 保留精确的文件路径、符号、命令、错误串和验证结果。
+- 记录已经排除的方案和失败指纹，避免后续重复尝试。
+- 丢弃寒暄、重复读取、已经作废的过程和模型推理。
+- 摘要会被直接当作已发生的事实使用，不要写「根据对话」这类元描述。
+- 不要编造；缺失的信息写「无」。
 
 严格按以下格式输出（使用中文）：
 
 ## 目标
-## 关键信息
+## 需求与限制
+## 决定
 ## 已完成
 ## 进行中
 ## 阻塞
 ## 下一步
-## 涉及的文件`
+## 涉及的文件
+## 关键上下文`
+
+const SUMMARY_HEADINGS = [
+  "## 目标",
+  "## 需求与限制",
+  "## 决定",
+  "## 已完成",
+  "## 进行中",
+  "## 阻塞",
+  "## 下一步",
+  "## 涉及的文件",
+  "## 关键上下文",
+]
+
+const SUMMARY_NUDGE = `你刚才的输出没有使用规定的模板。请重新输出完整摘要，必须使用上面的所有 ## 标题，不要解释，不要调用工具。`
+
+const hasSummaryTemplate = (text: string): boolean =>
+  SUMMARY_HEADINGS.every((heading) => text.includes(heading))
 
 /** 摘要请求的用户消息。 */
 const buildSummaryPrompt = (transcript: string, previousSummary?: string): string => {
@@ -411,8 +463,8 @@ const buildSummaryPrompt = (transcript: string, previousSummary?: string): strin
       "",
       "# 任务",
       previousSummary
-        ? "把「已有摘要」与「待压缩的对话」合并成一份新摘要：新信息优先；已完成的工作从「进行中」移到「已完成」；同一件事不要重复描述。"
-        : "把「待压缩的对话」压缩成一份摘要。",
+        ? "把「已有摘要」与「待压缩的对话」合并成一份新摘要。新信息优先；已解决问题移出阻塞和进行中；保留未解决问题与仍然有效的决定。"
+        : "把「待压缩的对话」整理成工作记忆摘要。",
     ].join("\n"),
   )
   return sections.join("\n")
