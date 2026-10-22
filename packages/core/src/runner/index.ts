@@ -238,6 +238,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const isLastStep = step >= agent.steps
     const tools = isLastStep ? [] : deps.tools.definitions()
     const system = [agent.system, systemContext.baseline].filter((part) => part.length > 0)
+    if (isLastStep) system.push(MAX_STEPS_PROMPT)
 
     // 4. 压缩检查。压缩过就重建请求（baseline 会换成新纪元的版本）。
     if (params.compactedOnce !== true) {
@@ -1064,6 +1065,16 @@ const summarizeToolResult = (status: "success" | "error", output: unknown, error
     return status
   }
 }
+
+const MAX_STEPS_PROMPT = `当前任务已经达到步数上限。工具已经禁用，请只输出文本收尾。
+
+最终回复必须明确包含：
+1. 已达到当前 Agent 的步数上限。
+2. 已经完成的工作和验证结果。
+3. 尚未完成、存在风险或无法验证的内容。
+4. 用户下一步可以采取的行动。
+
+不要宣称未执行或未验证的工作已经完成。`
 
 /**
  * 为一个 provider turn 派生取消控制器。
