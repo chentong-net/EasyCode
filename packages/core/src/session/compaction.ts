@@ -3,10 +3,15 @@ import { addUsage } from "@easycode/schema"
 
 import type { CoreConfig } from "../config.js"
 import { describeError, LLMError } from "../llm/error.js"
-import type { LLMClient, LLMMessage } from "../llm/types.js"
+import type { LLMClient, LLMMessage, LLMRequest } from "../llm/types.js"
 import { newMessageID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
 import { estimateTextTokens } from "../util/token.js"
+import {
+  createCompactionBackupStore,
+  type CompactionBackup,
+  type SummaryBackupInput,
+} from "./compaction-backup.js"
 import { buildLLMMessages, selectHistoryMessages, estimateRequestTokens } from "./history.js"
 import type { SessionHandle } from "./runtime.js"
 import { taskMemorySummary } from "./task.js"
@@ -61,6 +66,8 @@ export interface CompactionOutcome {
   afterTokens?: number
   attempts: number
   usedFallback: boolean
+  /** 诊断备份 ID，Runner 用它在最终请求重建后写入 after.json。 */
+  backupID?: string
 }
 
 export interface CompactionDeps {
@@ -79,6 +86,7 @@ export interface CompactInput {
   tools: ToolDefinition[]
   /** 本次请求的模型消息，用于估算占用 */
   messages: LLMMessage[]
+  toolChoice?: "auto" | "none"
   signal?: AbortSignal
 }
 
@@ -91,11 +99,14 @@ export interface CompactionManager {
   compactIfNeeded(input: CompactInput): Promise<CompactionOutcome>
   /** 上下文超限后的强制压缩。跳过节流判断，直接尝试。 */
   compactAfterOverflow(input: CompactInput): Promise<CompactionOutcome>
+  /** 把最终重建、即将发送给主模型的请求写入 after.json。 */
+  recordAfter(backupID: string | undefined, request: LLMRequest): Promise<void>
 }
 
 export const createCompactionManager = (deps: CompactionDeps): CompactionManager => {
   const logger = deps.logger ?? createLogger("session.compaction")
   const options = calculateCompactionBudget(deps.config)
+  const backups = createCompactionBackupStore(deps.config.dataDir, logger)
 
   const estimate = (system: string[], messages: LLMMessage[], tools: ToolDefinition[]): number =>
     estimateRequestTokens(system, messages, tools)
@@ -131,6 +142,21 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     beforeTokens: number,
   ): Promise<CompactionOutcome> => {
     const state = input.handle.state
+    const messageID = newMessageID()
+    const backup = await backups.prepare({
+      id: messageID,
+      sessionID: input.handle.id,
+      reason,
+      model: state.session.model,
+      baselineSeq: input.baselineSeq,
+      system: input.system,
+      messages: input.messages,
+      tools: input.tools,
+      task: state.task,
+      beforeTokens,
+      budget: { ...options },
+      ...(input.toolChoice === undefined ? {} : { toolChoice: input.toolChoice }),
+    })
     const history = selectHistoryMessages(state, input.baselineSeq)
     const targetTokens =
       reason === "overflow"
@@ -145,15 +171,41 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
 
     if (head.length === 0 || tail.length === 0) {
       logger.warn("历史长度不足以压缩，跳过", { sessionID: input.handle.id, head: head.length, tail: tail.length })
-      return { status: "failed", reason: "nothing_to_compact", beforeTokens, attempts: 1, usedFallback: false }
+      await backups.finalize(backup, {
+        status: "failed",
+        outcomeReason: "nothing_to_compact",
+        summarizedMessages: head.length,
+        keptMessages: tail.length,
+      })
+      return {
+        status: "failed",
+        reason: "nothing_to_compact",
+        beforeTokens,
+        attempts: 1,
+        usedFallback: false,
+        ...(backup ? { backupID: backup.id } : {}),
+      }
     }
 
     // 已有检查点作为摘要输入，但不混入待压缩消息和保留区。
     const subject = head
 
-    const summarized = await summarize({ ...input, previousSummary: previous?.text }, subject)
+    const summarized = await summarize({ ...input, previousSummary: previous?.text }, subject, backup)
     if (!summarized && input.signal?.aborted) {
-      return { status: "failed", reason: "aborted", beforeTokens, attempts: 1, usedFallback: false }
+      await backups.finalize(backup, {
+        status: "failed",
+        outcomeReason: "aborted",
+        summarizedMessages: subject.length,
+        keptMessages: tail.length,
+      })
+      return {
+        status: "failed",
+        reason: "aborted",
+        beforeTokens,
+        attempts: 1,
+        usedFallback: false,
+        ...(backup ? { backupID: backup.id } : {}),
+      }
     }
 
     const summary =
@@ -172,7 +224,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       type: "compaction.ended",
       sessionID: input.handle.id,
       timestamp: Date.now(),
-      messageID: newMessageID(),
+      messageID,
       text: summary,
       recentMessageIDs: tail.map((message) => message.id),
       reason: usedFallback ? "fallback" : reason === "overflow" ? "overflow" : "automatic",
@@ -202,23 +254,38 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
         triggerTokens: options.triggerTokens,
       })
     }
+    const outcomeReason = usedFallback
+      ? "fallback_checkpoint"
+      : reason === "overflow"
+        ? "overflow_compacted"
+        : "automatic_compacted"
+    await backups.finalize(backup, {
+      status: "completed",
+      outcomeReason,
+      summarizedMessages: subject.length,
+      keptMessages: tail.length,
+      keptTokens: estimateMessagesTokens(tail),
+      summaryChars: summary.length,
+      estimatedAfterTokens: afterTokens,
+      attempts,
+      usedFallback,
+      checkpointMessageID: messageID,
+    })
     return {
       status: "completed",
-      reason: usedFallback
-        ? "fallback_checkpoint"
-        : reason === "overflow"
-          ? "overflow_compacted"
-          : "automatic_compacted",
+      reason: outcomeReason,
       beforeTokens,
       afterTokens,
       attempts,
       usedFallback,
+      ...(backup ? { backupID: backup.id } : {}),
     }
   }
 
   const summarize = async (
     input: CompactInput & { previousSummary?: string },
     subject: Message[],
+    backup: CompactionBackup | undefined,
   ): Promise<{ text: string; attempts: number } | undefined> => {
     const transcript = renderTranscript(subject)
     const available =
@@ -237,6 +304,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
 
     const run = async (
       userPrompt: string,
+      purpose: SummaryBackupInput["purpose"],
     ): Promise<{ text: string; finish: string; attempts: number } | undefined> => {
       let text = ""
       let finish = ""
@@ -247,23 +315,51 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
         attemptsUsed = callAttempt
         text = ""
         finish = ""
+        const request: LLMRequest = {
+          model: input.handle.state.session.model,
+          system: [SUMMARY_SYSTEM_PROMPT],
+          messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
+          // 摘要请求不带工具：避免模型在总结时又去调用工具
+          tools: [],
+          maxOutputTokens: options.summaryOutputTokens,
+          sessionID: input.handle.id,
+          ...(input.signal ? { signal: input.signal } : {}),
+        }
         try {
-          for await (const event of deps.llm.stream({
-            model: input.handle.state.session.model,
-            system: [SUMMARY_SYSTEM_PROMPT],
-            messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-            // 摘要请求不带工具：避免模型在总结时又去调用工具
-            tools: [],
-            maxOutputTokens: options.summaryOutputTokens,
-            sessionID: input.handle.id,
-            ...(input.signal ? { signal: input.signal } : {}),
-          })) {
+          for await (const event of deps.llm.stream(request)) {
             if (event.type === "text.delta") text += event.text
             if (event.type === "usage") usage = event.usage
             if (event.type === "finish") finish = event.reason
           }
+          await backups.recordSummary(backup, {
+            purpose: callAttempt === 1 ? purpose : "retry",
+            request,
+            response: {
+              text,
+              finish,
+              usage,
+              validTemplate: hasSummaryTemplate(text),
+              keepText:
+                purpose === "chunk" ||
+                finish === "length" ||
+                text.trim().length === 0 ||
+                !hasSummaryTemplate(text),
+            },
+          })
           break
         } catch (error) {
+          await backups.recordSummary(backup, {
+            purpose: callAttempt === 1 ? purpose : "retry",
+            request,
+            response: {
+              text,
+              finish,
+              usage,
+              validTemplate: false,
+              error: describeError(error),
+              keepText: true,
+            },
+          })
           if (
             callAttempt === 1 &&
             error instanceof LLMError &&
@@ -298,13 +394,16 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       return { text: text.trim(), finish, attempts: attemptsUsed }
     }
 
-    const valid = async (userPrompt: string): Promise<string | undefined> => {
-      const first = await run(userPrompt)
+    const valid = async (
+      userPrompt: string,
+      purpose: SummaryBackupInput["purpose"],
+    ): Promise<string | undefined> => {
+      const first = await run(userPrompt, purpose)
       attempts += first?.attempts ?? 1
       if (!first || first.finish === "length" || first.text.length === 0) return undefined
       if (hasSummaryTemplate(first.text)) return first.text
 
-      const corrected = await run(`${userPrompt}\n\n${SUMMARY_NUDGE}`)
+      const corrected = await run(`${userPrompt}\n\n${SUMMARY_NUDGE}`, "corrected")
       attempts += corrected?.attempts ?? 1
       if (!corrected || corrected.finish === "length" || corrected.text.length === 0) return undefined
       return hasSummaryTemplate(corrected.text) ? corrected.text : undefined
@@ -312,7 +411,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
 
     const fits = (value: string): boolean => estimateTextTokens(value) < available
     if (fits(prompt)) {
-      const summary = await valid(prompt)
+      const summary = await valid(prompt, "initial")
       return summary ? { text: summary, attempts } : undefined
     }
 
@@ -327,7 +426,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       const chunkPrompt = buildSummaryPrompt(
         truncateToTokenBudget(renderTranscript(chunk), Math.floor(available * 0.9)),
       )
-      const part = await valid(chunkPrompt)
+      const part = await valid(chunkPrompt, "chunk")
       if (!part) return undefined
       parts.push(part)
     }
@@ -339,11 +438,25 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       previousSummary,
       taskMemory,
     )
-    const merged = await valid(mergePrompt)
+    const merged = await valid(mergePrompt, "merge")
     return merged ? { text: merged, attempts } : undefined
   }
 
-  return { budget: () => ({ ...options }), estimate, compactIfNeeded, compactAfterOverflow }
+  const recordAfter = async (backupID: string | undefined, request: LLMRequest): Promise<void> => {
+    await backups.recordAfter(
+      backupID,
+      request,
+      estimate(request.system, request.messages, request.tools),
+    )
+  }
+
+  return {
+    budget: () => ({ ...options }),
+    estimate,
+    compactIfNeeded,
+    compactAfterOverflow,
+    recordAfter,
+  }
 }
 
 /** 从模型窗口推导预算；小窗口下主动收紧输出和保留区，避免固定参数直接失效。 */

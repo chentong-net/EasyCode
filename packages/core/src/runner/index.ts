@@ -214,6 +214,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     promotion: Delivery | undefined
     /** 是否已经因为压缩重建过请求，避免同一步里反复压缩 */
     compactedOnce?: boolean
+    /** 当前转准备好发送后需要写入的压缩诊断 ID。 */
+    backupAfterID?: string
   }
 
   interface TurnResult {
@@ -249,13 +251,20 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         system,
         tools,
         messages,
+        ...(isLastStep ? { toolChoice: "none" as const } : {}),
         signal,
       })
       if (compacted.status === "completed") {
         // 压缩完成后开启新的上下文纪元：重渲染 baseline，
         // 旧纪元的中途系统消息就此退出模型历史
         await deps.context.replace(handle)
-        return runTurn({ ...params, step, promotion: undefined, compactedOnce: true })
+        return runTurn({
+          ...params,
+          step,
+          promotion: undefined,
+          compactedOnce: true,
+          ...(compacted.backupID === undefined ? {} : { backupAfterID: compacted.backupID }),
+        })
       }
     }
 
@@ -271,6 +280,10 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     if (isLastStep) {
       logger.info("已达到步数上限，本轮禁用工具以强制收尾", { sessionID: session.id, steps: agent.steps })
+    }
+
+    if (params.backupAfterID) {
+      await deps.compaction.recordAfter(params.backupAfterID, request)
     }
 
     // 取消信号由 streamTurn 创建：它需要为本轮单独派生一个控制器，
@@ -347,6 +360,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           system: request.system,
           tools: request.tools,
           messages: request.messages,
+          ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
           signal: turn.controller.signal,
         })
 
@@ -363,6 +377,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           system: [params.agent.system, systemContext.baseline].filter((part) => part.length > 0),
           messages: buildLLMMessages(params.handle.state, { baselineSeq: systemContext.baselineSeq }),
         }
+        await deps.compaction.recordAfter(compacted.backupID, request)
         logger.info("压缩完成，重试本次请求", { sessionID: params.handle.id })
       }
     } finally {
