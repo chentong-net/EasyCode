@@ -40,6 +40,7 @@ export const editTool = defineTool({
   ].join("\n"),
   input: inputSchema,
   permission: "edit",
+  effect: "mutation",
   resources: (input) => [input.path],
   savePatterns: (input) => [input.path],
   execute: async (input, context) => {
@@ -112,6 +113,7 @@ export const editTool = defineTool({
             `替换 ${input.replaceAll === true ? occurrences : 1} 处（+${change.added} 行 / -${change.removed} 行）`,
         },
       ],
+      metadata: { effect: "mutation", changedPaths: [target.display] },
     }
   },
 })

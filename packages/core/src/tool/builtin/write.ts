@@ -30,6 +30,7 @@ export const writeTool = defineTool({
   ].join("\n"),
   input: inputSchema,
   permission: "edit",
+  effect: "mutation",
   resources: (input) => [input.path],
   savePatterns: (input) => [input.path],
   execute: async (input, context) => {
@@ -54,6 +55,7 @@ export const writeTool = defineTool({
           text: `${existed ? "已覆盖" : "已创建"}文件：${target.display}（${lines} 行，${formatBytes(bytes)}）`,
         },
       ],
+      metadata: { effect: "mutation", changedPaths: [target.display] },
     }
   },
 })

@@ -52,6 +52,7 @@ export const grepTool = defineTool({
     "需要按文件名查找请使用 glob 工具。",
   ].join("\n"),
   input: inputSchema,
+  effect: "read",
   resources: (input) => [input.pattern],
   savePatterns: (input) => [input.pattern],
   execute: async (input, context) => {
@@ -103,6 +104,7 @@ export const grepTool = defineTool({
         truncated,
       },
       content: [{ type: "text", text: renderMatches(input.pattern, matches, scanned, truncated) }],
+      metadata: { effect: "read" },
     }
   },
 })

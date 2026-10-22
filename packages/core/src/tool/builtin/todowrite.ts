@@ -38,6 +38,7 @@ export const todoWriteTool = defineTool({
   input: inputSchema,
   // 清单是会话内部状态，不涉及外部资源，因此不需要用户授权
   permission: "todowrite",
+  effect: "state",
   resources: () => [],
   savePatterns: () => [],
   execute: async (input, context) => {
@@ -68,6 +69,7 @@ export const todoWriteTool = defineTool({
           ].join("\n"),
         },
       ],
+      metadata: { effect: "state" },
     }
   },
 })

@@ -53,6 +53,7 @@ export const readTool = defineTool({
     "图片文件会作为图像内容返回，可以直接查看。",
   ].join("\n"),
   input: inputSchema,
+  effect: "read",
   resources: (input) => [input.path],
   // 记住「总是允许读这个文件」是有风险且没什么价值的，保持每次询问
   savePatterns: () => [],
@@ -97,6 +98,7 @@ const listDirectory = async (absolute: string, display: string, input: Input): P
   return {
     output: { kind: "directory", path: display, total: sorted.length, entries: lines },
     content: [{ type: "text", text: `${header}\n${lines.join("\n")}${footer}` }],
+    metadata: { effect: "read" },
   }
 }
 
@@ -113,6 +115,7 @@ const readImage = async (absolute: string, display: string, mime: string, size: 
       { type: "text", text: `已读取图片：${display}（${mime}，${formatBytes(size)}）` },
       { type: "file", mime, data, name: display },
     ],
+    metadata: { effect: "read" },
   }
 }
 
@@ -155,6 +158,7 @@ const readTextFile = async (absolute: string, display: string, input: Input): Pr
       endLine: offset + selected.length,
     },
     content: [{ type: "text", text: `${header}\n${rendered.join("\n")}${footer}` }],
+    metadata: { effect: "read" },
   }
 }
 

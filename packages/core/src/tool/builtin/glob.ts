@@ -53,6 +53,7 @@ export const globTool = defineTool({
     "在不知道文件具体位置时，用这个工具定位文件比逐个目录 read 更高效。",
   ].join("\n"),
   input: inputSchema,
+  effect: "read",
   resources: (input) => [input.pattern],
   savePatterns: (input) => [input.pattern],
   execute: async (input, context) => {
@@ -84,6 +85,7 @@ export const globTool = defineTool({
       return {
         output: { pattern: input.pattern, matches: [], total: 0 },
         content: [{ type: "text", text: `没有找到匹配 ${input.pattern} 的文件。` }],
+        metadata: { effect: "read" },
       }
     }
 
@@ -97,6 +99,7 @@ export const globTool = defineTool({
           text: `匹配 ${input.pattern} 的文件共 ${sorted.length} 个：\n${display.join("\n")}${footer}`,
         },
       ],
+      metadata: { effect: "read" },
     }
   },
 })
