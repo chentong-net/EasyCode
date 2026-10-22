@@ -68,6 +68,17 @@ export const TaskOutcome = z.object({
 
 export type TaskOutcome = z.infer<typeof TaskOutcome>
 
+/** 显式任务预算，供 Runner 和界面判断是否接近或耗尽执行上限。 */
+export const TaskBudget = z.object({
+  softSteps: z.number().int().positive(),
+  hardSteps: z.number().int().positive(),
+  usedSteps: z.number().int().nonnegative(),
+  exhausted: z.boolean(),
+  extensions: z.number().int().nonnegative(),
+})
+
+export type TaskBudget = z.infer<typeof TaskBudget>
+
 /**
  * 可重放的任务工作记忆。它独立于聊天消息存在，压缩历史时不会随摘要丢失。
  */
@@ -84,6 +95,13 @@ export const TaskState = z.object({
   lastToolSignature: z.string().optional(),
   lastObservation: z.string().optional(),
   verificationNudgedRevision: z.number().int().nonnegative().optional(),
+  budget: TaskBudget.default({
+    softSteps: 20,
+    hardSteps: 30,
+    usedSteps: 0,
+    exhausted: false,
+    extensions: 0,
+  }),
   outcome: TaskOutcome.optional(),
 })
 

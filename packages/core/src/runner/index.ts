@@ -231,7 +231,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     // 1. 提升输入。有输入被提升时重置步数预算。
     const promoted = await promoteInputs(handle, params.promotion)
     const step = promoted.count > 0 ? 1 : params.step
-    await ensureTask(handle, promoted.texts)
+    await ensureTask(handle, promoted.texts, agent.steps)
+    await updateTaskBudget(handle, step, agent.steps)
 
     // 2. 系统上下文。首次进入会渲染并冻结 baseline，之后只做变化比对。
     const systemContext = await deps.context.ensure(handle)
@@ -242,6 +243,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const tools = isLastStep ? [] : deps.tools.definitions()
     const system = [agent.system, systemContext.baseline].filter((part) => part.length > 0)
     if (isLastStep) system.push(MAX_STEPS_PROMPT)
+    else if (step >= (handle.state.task?.budget.softSteps ?? agent.steps)) system.push(SOFT_STEPS_PROMPT)
 
     // 4. 压缩检查。压缩过就重建请求（baseline 会换成新纪元的版本）。
     if (params.compactedOnce !== true) {
@@ -985,20 +987,38 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     })
   }
 
-  const ensureTask = async (handle: SessionHandle, inputs: string[]): Promise<void> => {
+  const ensureTask = async (handle: SessionHandle, inputs: string[], stepLimit: number): Promise<void> => {
     if (inputs.length === 0) return
 
     const current = handle.state.task
     if (!current || current.outcome) {
       const first = inputs[0]
       if (first === undefined) return
-      await appendTask(handle, createTaskState(first, Date.now()))
+      await appendTask(handle, createTaskState(first, Date.now(), stepLimit))
       return
     }
 
     let amended = current
     for (const input of inputs) amended = amendTask(amended, input)
     await appendTask(handle, amended)
+  }
+
+  const updateTaskBudget = async (handle: SessionHandle, step: number, hardSteps: number): Promise<void> => {
+    const task = handle.state.task
+    if (!task || task.outcome) return
+    const budget = task.budget
+    const exhausted = step >= hardSteps
+    if (budget.usedSteps === step && budget.hardSteps === hardSteps && budget.exhausted === exhausted) return
+    await appendTask(handle, {
+      ...task,
+      budget: {
+        ...budget,
+        hardSteps,
+        softSteps: Math.max(1, Math.floor(hardSteps * 0.7)),
+        usedSteps: step,
+        exhausted,
+      },
+    })
   }
 
   const finalizeTask = async (handle: SessionHandle, interrupted: boolean): Promise<void> => {
@@ -1014,6 +1034,9 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     else if (task.phase === "blocked") {
       status = "blocked"
       remaining.push(task.lastObservation ?? "任务因执行错误而停止。")
+    } else if (task.budget.exhausted) {
+      status = "partial"
+      remaining.push("Agent 已达到步数上限，剩余工作未继续执行。")
     }
     else if (task.verificationStatus === "stale" || task.verificationStatus === "failed") {
       status = "partial"
@@ -1118,6 +1141,12 @@ const MAX_STEPS_PROMPT = `当前任务已经达到步数上限。工具已经禁
 4. 用户下一步可以采取的行动。
 
 不要宣称未执行或未验证的工作已经完成。`
+
+const SOFT_STEPS_PROMPT = `任务已经接近步数软上限。请立即评估当前进度：
+- 优先完成关键步骤，不要继续无目的的重复读取。
+- 如果已经收集足够信息，进入验证和收尾。
+- 如仍需要较多工作，请精简计划并保留最关键任务。
+- 不得把尚未执行的工作描述为已经完成。`
 
 /**
  * 为一个 provider turn 派生取消控制器。
