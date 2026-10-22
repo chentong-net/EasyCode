@@ -23,6 +23,7 @@ export const createTaskState = (input: string, timestamp: number): TaskState => 
   verifications: [],
   toolCalls: 0,
   repeatedToolCalls: 0,
+  mutationRevision: 0,
 })
 
 export const inferTaskContract = (input: string): TaskContract => {

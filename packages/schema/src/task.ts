@@ -80,6 +80,7 @@ export const TaskState = z.object({
   verifications: z.array(VerificationRecord).max(20),
   toolCalls: z.number().int().nonnegative(),
   repeatedToolCalls: z.number().int().nonnegative(),
+  mutationRevision: z.number().int().nonnegative(),
   lastToolSignature: z.string().optional(),
   lastObservation: z.string().optional(),
   verificationNudgedRevision: z.number().int().nonnegative().optional(),

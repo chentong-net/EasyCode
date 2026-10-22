@@ -604,6 +604,29 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       usage,
     })
 
+    const task = handle.state.task
+    const needsVerification =
+      !aborted &&
+      !params.isLastStep &&
+      task !== undefined &&
+      task.verificationStatus === "stale" &&
+      task.changedPaths.length > 0 &&
+      task.verificationNudgedRevision !== task.mutationRevision
+
+    if (needsVerification && task) {
+      await appendTask(
+        handle,
+        moveTaskPhase(
+          {
+            ...task,
+            verificationNudgedRevision: task.mutationRevision,
+          },
+          "verify",
+        ),
+      )
+      needsContinuation = true
+    }
+
     logger.info("本轮结束", {
       sessionID: session.id,
       messageID,
@@ -767,23 +790,28 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         ? task.repeatedToolCalls + 1
         : 0
 
+    const mutation =
+      input.status === "success" &&
+      (metadata?.effect === "mutation" || (metadata?.changedPaths?.length ?? 0) > 0)
+    const phase = metadata?.needsInput
+      ? "clarify"
+      : mutation
+        ? "execute"
+        : input.name === "todowrite"
+          ? "plan"
+          : metadata?.verification
+            ? metadata.verification.status === "failed"
+              ? "verify"
+              : "finalize"
+            : task.phase
     let next: TaskState = {
       ...task,
       changedPaths,
-      verificationStatus:
-        changedPaths.length > task.changedPaths.length ? "stale" : task.verificationStatus,
-      phase:
-        metadata?.needsInput === true
-          ? "clarify"
-          : changedPaths.length > task.changedPaths.length
-            ? "execute"
-            : metadata?.verification
-              ? metadata.verification.status === "failed"
-                ? "verify"
-                : "finalize"
-              : task.phase,
+      verificationStatus: mutation ? "stale" : task.verificationStatus,
+      phase,
       toolCalls: task.toolCalls + 1,
       repeatedToolCalls: repeated,
+      mutationRevision: mutation ? task.mutationRevision + 1 : task.mutationRevision,
       lastToolSignature: signature,
       lastObservation: observation,
     }
