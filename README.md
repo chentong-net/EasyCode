@@ -221,7 +221,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
   sessions/<会话ID>/context.json    上下文纪元状态
-  compaction-contexts/<会话ID>/     压缩前后的完整请求与摘要诊断
+  compaction-contexts/<会话ID>/<YYYYMMDDHHmm-t预估Token-压缩ID>/
+                                     压缩前后的完整请求与摘要诊断
   tool-output/tool_*.txt            超长工具输出的落盘文件
 ```
 
@@ -237,6 +238,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 诊断文件不包含 API Key 等鉴权信息，使用仅当前用户可读的文件权限。备份失败只记录警告，不会中断主任务。
 
+目录时间使用本地分钟时间，便于按名称排序和人工定位；`metadata.json` 同时记录 UTC 时间、带时区的本地时间、时区、精确开始/完成时间和耗时。
+
 ## 当前实现范围
 
 - 单个内置 agent：`build`，单轮任务上限 30 步
@@ -246,4 +249,5 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 两种入口：命令行与 Electron 桌面端，共用 Core 运行时
 - 事件流断线重连，按 `seq` 补发缺失事件
 - 回合具有显式任务阶段、验证门槛、无进展保护和结构化最终结果
+- 步数预算进入任务状态，达到软上限时要求模型精简计划，达到硬上限时以部分完成结果收尾
 - 上下文用量超过阈值时自动压缩，支持分块摘要、预算收缩和确定性降级
