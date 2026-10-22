@@ -221,10 +221,21 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
   sessions/<会话ID>/context.json    上下文纪元状态
+  compaction-contexts/<会话ID>/     压缩前后的完整请求与摘要诊断
   tool-output/tool_*.txt            超长工具输出的落盘文件
 ```
 
 `session.json` 是事件日志的派生缓存，供会话列表读取；它结构不符时，会话由事件日志重新推导。
+
+每次真正开始上下文压缩时，还会在
+`<EASYCODE_DATA_DIR>/compaction-contexts/<会话ID>/` 下创建独立诊断目录：
+
+- `before.json`：触发压缩前准备发送给主模型的完整请求；
+- `after.json`：新上下文纪元建立后，真正准备发送给主模型的完整请求；
+- `summaries/`：摘要模型每次调用的完整输入、结束原因、usage 和模板校验结果，失败或中间分块会保留原始摘要文本；
+- `metadata.json`：触发原因、预算、压缩前后估算、保留消息、摘要尝试次数和是否降级。
+
+诊断文件不包含 API Key 等鉴权信息，使用仅当前用户可读的文件权限。备份失败只记录警告，不会中断主任务。
 
 ## 当前实现范围
 
