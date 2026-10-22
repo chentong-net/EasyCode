@@ -1,3 +1,5 @@
+import type { ToolFailureKind } from "@easycode/schema"
+
 /**
  * Core 内部使用的错误类型。
  *
@@ -11,9 +13,20 @@
  * （例如换个路径、改用别的命令）。绝大多数工具错误都属于这一类。
  */
 export class ToolFailure extends Error {
-  constructor(message: string) {
+  readonly failureKind: ToolFailureKind
+  readonly retryable: boolean
+
+  constructor(
+    message: string,
+    options: {
+      kind?: ToolFailureKind
+      retryable?: boolean
+    } = {},
+  ) {
     super(message)
     this.name = "ToolFailure"
+    this.failureKind = options.kind ?? "internal"
+    this.retryable = options.retryable ?? false
   }
 }
 

@@ -1,4 +1,4 @@
-import type { Content, Todo, ToolDefinition } from "@easycode/schema"
+import type { Content, Todo, ToolDefinition, ToolEffect, ToolMetadata } from "@easycode/schema"
 import { z } from "zod"
 import { zodToJsonSchema } from "zod-to-json-schema"
 
@@ -49,10 +49,16 @@ export interface ToolContext {
 }
 
 export interface ToolResult {
+  /** 默认成功；命令非零退出等仍能产生输出的失败应显式返回 error。 */
+  status?: "success" | "error"
   /** 结构化结果，供 UI 展示（模型看不到） */
   output: unknown
   /** 发给模型的内容块 */
   content: Content[]
+  /** 失败时给模型和用户看的说明 */
+  error?: string
+  /** 副作用、修改路径和验证证据 */
+  metadata?: ToolMetadata
 }
 
 export interface Tool<Input = unknown> {
@@ -62,6 +68,8 @@ export interface Tool<Input = unknown> {
   input: z.ZodType<Input>
   /** 权限动作名。默认与工具名相同，例如 read / edit / bash */
   permission: string
+  /** 工具的默认副作用类别，工具可以在单次结果中覆盖。 */
+  effect: ToolEffect
   /**
    * 从入参推导需要授权的资源清单。
    *
@@ -81,6 +89,7 @@ export interface ToolConfig<Input> {
   description: string
   input: z.ZodType<Input>
   permission?: string
+  effect?: ToolEffect
   resources?: (input: Input) => string[]
   savePatterns?: (input: Input) => string[]
   execute: (input: Input, context: ToolContext) => Promise<ToolResult>
@@ -92,6 +101,7 @@ export const defineTool = <Input>(config: ToolConfig<Input>): Tool<Input> => ({
   description: config.description,
   input: config.input,
   permission: config.permission ?? config.name,
+  effect: config.effect ?? "state",
   // 默认资源取工具名：没有特别的资源语义时，「这个工具本身」就是被授权的对象
   resources: config.resources ?? (() => [config.name]),
   savePatterns: config.savePatterns ?? (() => []),

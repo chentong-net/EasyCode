@@ -1,4 +1,4 @@
-import type { Content, Todo, ToolCall, ToolDefinition } from "@easycode/schema"
+import type { Content, Todo, ToolCall, ToolDefinition, ToolMetadata } from "@easycode/schema"
 
 import { PermissionDeclinedError, ToolFailure } from "../errors.js"
 import { createLogger, type Logger } from "../log.js"
@@ -27,6 +27,7 @@ export interface ToolSettlement {
   /** 完整输出的落盘路径 */
   outputPaths?: string[]
   error?: string
+  metadata?: ToolMetadata
 }
 
 export interface SettleInput {
@@ -73,12 +74,22 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
 
     if (!tool) {
       logger.warn("模型请求了不存在的工具", { name, sessionID: input.sessionID })
-      return { name, status: "error", error: `不存在名为 ${name} 的工具` }
+      return {
+        name,
+        status: "error",
+        error: `不存在名为 ${name} 的工具`,
+        metadata: { failureKind: "not_found" },
+      }
     }
 
     if (input.parseError) {
       logger.warn("工具入参不是合法 JSON", { name, parseError: input.parseError })
-      return { name, status: "error", error: `工具入参解析失败：${input.parseError}` }
+      return {
+        name,
+        status: "error",
+        error: `工具入参解析失败：${input.parseError}`,
+        metadata: { failureKind: "invalid_input" },
+      }
     }
 
     const parsed = tool.input.safeParse(input.call.input)
@@ -87,7 +98,12 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
         .map((issue) => `${issue.path.length > 0 ? issue.path.join(".") : "(根)"}: ${issue.message}`)
         .join("；")
       logger.warn("工具入参校验失败", { name, detail, received: input.call.input })
-      return { name, status: "error", error: `工具入参不合法：${detail}` }
+      return {
+        name,
+        status: "error",
+        error: `工具入参不合法：${detail}`,
+        metadata: { failureKind: "invalid_input" },
+      }
     }
 
     const context: ToolContext = {
@@ -110,6 +126,11 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
     try {
       const result = await tool.execute(parsed.data, context)
       const bounded = await boundContent(result.content, deps.saveToolOutput)
+      const status = result.status ?? "success"
+      const metadata: ToolMetadata = {
+        effect: result.metadata?.effect ?? tool.effect,
+        ...result.metadata,
+      }
 
       logger.debug("工具执行成功", {
         name,
@@ -120,10 +141,12 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
 
       return {
         name,
-        status: "success",
+        status,
         output: result.output,
         content: buildModelContent(bounded.text, bounded.files),
         outputPaths: bounded.paths,
+        metadata,
+        ...(status === "error" ? { error: result.error ?? "工具执行失败" } : {}),
       }
     } catch (error) {
       // 用户拒绝授权会让整个回合停止，必须原样向上抛，不能变成工具错误结果
@@ -131,13 +154,27 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
 
       if (error instanceof ToolFailure) {
         logger.info("工具执行失败", { name, callID: input.call.callID, message: error.message })
-        return { name, status: "error", error: error.message }
+        return {
+          name,
+          status: "error",
+          error: error.message,
+          metadata: {
+            effect: tool.effect,
+            failureKind: error.failureKind,
+            retryable: error.retryable,
+          },
+        }
       }
 
       // 未预期的异常：记完整堆栈，但只把简短说明交给模型
       const message = error instanceof Error ? error.message : String(error)
       logger.error("工具执行抛出未预期的错误", { name, callID: input.call.callID, error })
-      return { name, status: "error", error: `工具执行失败：${message}` }
+      return {
+        name,
+        status: "error",
+        error: `工具执行失败：${message}`,
+        metadata: { effect: tool.effect, failureKind: "internal" },
+      }
     }
   }
 
