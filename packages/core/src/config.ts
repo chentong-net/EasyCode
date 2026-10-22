@@ -21,11 +21,11 @@ export interface CoreConfig {
   apiKey: string
   /** 固定使用的模型 id */
   model: string
-  /** 模型上下文窗口大小，压缩机制据此判断何时需要压缩历史 */
+  /** 模型上下文窗口大小，compaction（压缩）机制据此判断何时执行 */
   contextWindow: number
-  /** 单轮回复的输出预算，仅用于上下文计算，不会发送给服务端 */
+  /** 单轮回复的输出预算，参与上下文计算，并作为 `max_tokens` 发送给模型服务 */
   maxOutputTokens: number
-  /** 数据目录：会话日志、上下文快照、工具输出落盘都在这里 */
+  /** 数据目录：会话日志、context snapshot（快照）和工具输出都在这里 */
   dataDir: string
   /** 采样温度，未配置时不发送该字段 */
   temperature?: number
@@ -33,10 +33,10 @@ export interface CoreConfig {
   headers?: Record<string, string>
 }
 
-/** 默认上下文窗口。取一个保守值：宁可可压缩得早一点，也不要撞上上下文超限。 */
+/** 默认上下文窗口。取一个保守值：宁可提前执行 compaction（压缩），也不要撞上上下文超限。 */
 const DEFAULT_CONTEXT_WINDOW = 128_000
 
-/** 默认输出预算，与上下文窗口一起决定压缩阈值。 */
+/** 默认输出预算，与上下文窗口一起决定 compaction（压缩）阈值。 */
 const DEFAULT_MAX_OUTPUT_TOKENS = 8_192
 
 /**

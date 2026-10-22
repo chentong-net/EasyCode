@@ -1,11 +1,11 @@
 import { z } from "zod"
 
 /**
- * 权限规则的效果。
+ * 权限规则的裁决结果（effect）。
  *
  * - `allow`：直接执行
  * - `ask`：挂起并请求用户审批
- * - `deny`：拒绝执行，返回给模型一条错误说明
+ * - `deny`：拒绝执行并停止当前回合
  */
 export const PermissionEffect = z.enum(["allow", "ask", "deny"])
 

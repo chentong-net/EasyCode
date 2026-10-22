@@ -19,7 +19,7 @@ export const DEFAULT_AGENT_ID = "build"
 /**
  * build agent 的系统提示词。
  *
- * 它会被拼在 baseline 系统上下文之前，属于请求的最前缀部分。写的时候注意两点：
+ * 它会被拼在 baseline（基线）系统上下文之前，属于请求的最前缀部分。写的时候注意两点：
  * 1. 不要包含任何会变化的信息（时间、随机值、目录）——目录等动态信息由
  *    baseline 系统上下文提供，混在这里会破坏「前缀逐字节稳定」这个前提。
  * 2. 强调「不做用户没要求的事」，这是 agent 最容易失控的地方。
@@ -53,15 +53,16 @@ const BUILTIN_AGENTS: Agent[] = [
     id: DEFAULT_AGENT_ID,
     description: "默认的编码助手，可以读写文件并执行命令",
     system: BUILD_SYSTEM_PROMPT,
-    // 30 轮足够完成绝大多数编码任务；达到上限后会禁用工具强制收尾，
+    // 30 个 provider turn（模型调用轮次）足够完成绝大多数编码任务；达到上限后会禁用工具强制收尾，
     // 避免模型陷入「反复读同一个文件」的死循环
     steps: 30,
     permissions: [
       // 兜底：默认允许
       { action: "*", resource: "*", effect: "allow" },
-      // 访问工作目录之外的路径需要用户确认
+      // 结构化文件工具访问工作目录之外的路径时需要用户确认；
+      // bash 等工具不会把命令中的路径转换成该 action
       { action: "external_directory", resource: "*", effect: "ask" },
-      // 读取环境变量文件需要用户确认，避免密钥在用户不知情时进入模型上下文
+      // read 动作读取环境变量文件时需要用户确认；grep 与 bash 不受这条 action 保护
       { action: "read", resource: "*.env", effect: "ask" },
       { action: "read", resource: "*.env.*", effect: "ask" },
       // 破坏性命令需要确认

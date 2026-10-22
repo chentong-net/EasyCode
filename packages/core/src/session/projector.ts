@@ -17,14 +17,14 @@ const logger = createLogger("session.projector")
 /**
  * 会话的内存投影状态。
  *
- * 事件日志是真相来源，这个对象是它的折叠结果。之所以要在内存里维护而不是
- * 每次读盘，是因为每轮 provider turn 都要读取「当前历史」和「待处理输入」，
+ * 事件日志是单一事实来源，这个对象是它重放并归约后的结果。之所以要在内存里维护而不是
+ * 每次读盘，是因为每个 provider turn（模型调用轮次）都要读取「当前历史」和「待处理输入」，
  * 实时重放整个日志会让长会话变得很慢。
  */
 export interface ProjectedState {
   session: Session
   messages: Message[]
-  /** 已接纳但尚未提升为可见消息的输入 */
+  /** 已接纳但尚未转为可见消息的输入 */
   pendingInputs: Map<string, { text: string; delivery: Delivery }>
   /** 待审批的权限请求（已写入日志但还没收到回复的） */
   pendingPermissions: Map<string, PermissionRequest>
@@ -39,7 +39,7 @@ export interface ProjectedState {
   /**
    * 消息 ID → 产生它的事件序号。
    *
-   * 历史投影需要据此判断某条系统消息是否已经被折进 baseline（序号 ≤ baselineSeq），
+   * 历史投影需要据此判断某条系统消息是否已经被折进 baseline（基线，序号 ≤ baselineSeq），
    * 消息本身不带序号，所以单独维护一张表。
    */
   messageSeq: Map<string, number>
@@ -61,7 +61,7 @@ export const createProjectedState = (session: Session): ProjectedState => ({
   toolIndex: new Map(),
 })
 
-/** 折叠整条事件日志，得到当前投影状态。 */
+/** 重放并归约整条事件日志，得到当前投影状态。 */
 export const projectEvents = (session: Session, events: DurableEvent[]): ProjectedState => {
   const state = createProjectedState(session)
   for (const event of events) applyEvent(state, event)
@@ -112,8 +112,8 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       const input = state.pendingInputs.get(event.inputID)
       state.pendingInputs.delete(event.inputID)
       if (!input) {
-        // 日志被截断时可能出现「只见提升、不见接纳」，此时文本已经无从得知
-        logger.warn("输入提升事件找不到对应的接纳记录", { inputID: event.inputID })
+        // 日志被截断时可能出现「只见转换、不见接纳」，此时文本已经无从得知
+        logger.warn("输入转换事件找不到对应的接纳记录", { inputID: event.inputID })
       }
       pushMessage(
         state,
@@ -238,7 +238,7 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
   }
 }
 
-/** 把工具结算事件转换成投影里的工具状态。 */
+/** 把工具调用完成事件转换成投影里的工具状态。 */
 const toToolState = (event: Extract<DurableEvent, { type: "tool.settled" }>): ToolState => {
   if (event.status === "success") {
     return {
@@ -280,7 +280,7 @@ const setPart = (state: ProjectedState, messageID: string, index: number, part: 
 const settleTool = (state: ProjectedState, callID: string, toolState: ToolState): void => {
   const location = state.toolIndex.get(callID)
   if (!location) {
-    logger.warn("工具结算事件找不到对应的调用记录", { callID })
+    logger.warn("工具调用完成事件找不到对应的调用记录", { callID })
     return
   }
 
@@ -301,7 +301,7 @@ const settleTool = (state: ProjectedState, callID: string, toolState: ToolState)
  */
 export const nextPartIndex = (message: Message): number => ("parts" in message ? message.parts.length : 0)
 
-/** 取出某个会话中所有未提升的输入，按接纳顺序排列。 */
+/** 取出某个会话中所有尚未转为可见消息的输入，按接纳顺序排列。 */
 export const pendingInputList = (state: ProjectedState): Array<{ inputID: string; text: string; delivery: Delivery }> =>
   [...state.pendingInputs.entries()].map(([inputID, value]) => ({ inputID, ...value }))
 

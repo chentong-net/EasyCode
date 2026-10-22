@@ -41,7 +41,7 @@ export const VerificationRecord = z.object({
 
 export type VerificationRecord = z.infer<typeof VerificationRecord>
 
-/** 压缩和后续回合都必须保留的任务契约。 */
+/** compaction（压缩）和后续回合都必须保留的任务契约。 */
 export const TaskContract = z.object({
   goal: z.string(),
   kind: TaskKind,
@@ -80,7 +80,7 @@ export const TaskBudget = z.object({
 export type TaskBudget = z.infer<typeof TaskBudget>
 
 /**
- * 可重放的任务工作记忆。它独立于聊天消息存在，压缩历史时不会随摘要丢失。
+ * 可重放的任务工作记忆。它独立于聊天消息存在，执行 compaction（压缩）时不会随摘要丢失。
  */
 export const TaskState = z.object({
   version: z.literal(1),

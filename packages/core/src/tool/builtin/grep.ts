@@ -25,8 +25,6 @@ const MAX_MATCHES = 200
 const MAX_FILE_BYTES = 2 * 1024 * 1024
 /** 单条匹配结果的文本上限，避免单行就是整个文件的情况 */
 const MAX_MATCH_LENGTH = 400
-/** 遍历的最大目录深度，防止符号链接造成的无限递归 */
-const MAX_DEPTH = 24
 
 const inputSchema = z.object({
   pattern: z.string().describe("要检索的正则表达式，例如 function\\s+handleLogin"),

@@ -16,15 +16,16 @@ export const formatTokens = (value: number): string => {
 }
 
 /**
- * 一次调用实际消耗的全部输入 token。
+ * 当前界面的 token 合计口径。
  *
  * `input` 与 `cacheRead` / `cacheWrite` 互不重叠，三者相加才是输入总量；
- * 输出与推理分开统计但都属于模型产生的部分，展示占用时一并计入。
+ * 但协议层映射后的 `output` 已经包含 `reasoning`，本函数又加了一次 `reasoning`。
+ * 因此当前结果会重复计入 reasoning token，不应把它当作严格的用量总和。
  */
 export const usageTotal = (usage: Usage): number =>
   usage.input + usage.cacheRead + usage.cacheWrite + usage.output + usage.reasoning
 
-/** 相对时间。列表里显示「刚刚 / 5 分钟前 / 3 天前」比绝对时间更容易扫读。 */
+/** 相对时间格式化工具。当前侧边栏未展示时间，此函数保留供后续界面使用。 */
 export const formatRelativeTime = (timestamp: number): string => {
   const diff = Date.now() - timestamp
   if (diff < 60_000) return "刚刚"

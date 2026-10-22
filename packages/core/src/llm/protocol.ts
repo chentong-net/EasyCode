@@ -246,7 +246,7 @@ interface PendingToolCall {
  * 因此这里必须累积，不能在收到第一个分片时就产出 tool.call 事件。
  *
  * `finished` 与 `done` 是两个不同的状态，不能合并：
- * - `finished`：finish 事件已经产出，之后不会再有工具调用需要结算
+ * - `finished`：finish 事件已经产出，之后不会再有工具调用需要写入最终结果
  * - `done`：收到 `[DONE]`，流可以停止读取
  * 用量帧夹在两者之间，把它们混为一谈会导致用量统计静默归零。
  */

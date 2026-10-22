@@ -5,12 +5,11 @@ import type { Logger } from "./log.js"
 /**
  * 会话事件总线。
  *
- * 只有一个职责：把运行时产生的事件分发给订阅者（本进程里就是 SSE 处理器）。
+ * 只有一个职责：把运行时产生的事件分发给订阅者，例如 SSE 处理器或 CLI 终端渲染器。
  *
  * 设计取舍：用回调而不是 AsyncIterable。
- * 原因是消费者只有「写 SSE 响应」这一种形态，而 SSE 的关闭时机由 HTTP 连接决定，
- * 回调式订阅配一个显式的 unsubscribe 函数更好控制；用异步迭代器则需要在
- * 消费者提前 break 时正确回收等待中的 promise，容易写出悬挂的连接。
+ * HTTP 场景下，SSE 的关闭时机由连接决定；回调式订阅配一个显式的 unsubscribe
+ * 函数更容易控制生命周期。
  */
 export type EventListener = (event: Event) => void
 

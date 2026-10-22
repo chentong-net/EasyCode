@@ -8,8 +8,9 @@ import { formatBytes } from "./read.js"
 /**
  * 执行 shell 命令。
  *
- * 这是权限体系最重要的一道关口：它是唯一能让 agent 产生任意副作用的工具，
- * 因此每次调用都会把**完整命令字符串**作为授权资源提交给用户。
+ * 这是权限体系最重要的一道关口：它是唯一能让 agent 产生任意副作用的工具。
+ * 每次调用都会把**完整命令字符串**提交给权限服务；默认规则允许普通命令，
+ * 只有匹配到 `rm -rf`、`sudo` 等规则时才会进入人工审批。
  *
  * 实现上处理了三个真实会出问题的地方：
  *
@@ -34,7 +35,7 @@ const inputSchema = z.object({
   description: z
     .string()
     .optional()
-    .describe("用一句话说明这条命令在做什么，会显示给用户，便于用户判断是否批准"),
+    .describe("用一句话说明这条命令在做什么，作为工具调用入参记录"),
   timeout: z
     .number()
     .int()
@@ -51,14 +52,13 @@ export const bashTool = defineTool({
     "在工作目录下执行 shell 命令，返回退出码与输出。",
     `默认超时 ${DEFAULT_TIMEOUT_MS / 1000} 秒，可通过 timeout 参数延长，最长 ${MAX_TIMEOUT_MS / 1000} 秒。`,
     "命令会以当前工作目录为基准执行。",
-    "执行前必须获得用户授权，因此不要用它做无意义的试探（例如反复执行 ls）。",
+    "调用前会经过权限规则；需要人工审批时必须先获得用户确认。不要用它做无意义的试探（例如反复执行 ls）。",
     "读取文件请用 read，检索内容请用 grep/glob，不要用 cat 或 find。",
   ].join("\n"),
   input: inputSchema,
   effect: "command",
   resources: (input) => [input.command],
-  // 记住「总是允许这条命令」是合理的：用户批准了一条命令，
-  // 通常意味着同类命令也可以接受。注意这里记的是完整命令字符串。
+  // 记住的是完整命令字符串，因此保存后的规则只会自动允许完全相同的命令。
   savePatterns: (input) => [input.command],
   execute: async (input, context) => {
     const timeoutMs = Math.min(input.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)

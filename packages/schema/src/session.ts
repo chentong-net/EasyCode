@@ -29,7 +29,7 @@ export type Todo = z.infer<typeof Todo>
  */
 export const Session = z.object({
   id: z.string(),
-  /** 会话标题，创建时由首条输入截断生成，用户可后续修改 */
+  /** 会话标题：创建时可通过请求指定，否则由首条输入截断生成；当前没有修改标题的 API */
   title: z.string(),
   /** 绑定的工作目录绝对路径 */
   directory: z.string(),

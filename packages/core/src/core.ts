@@ -15,7 +15,7 @@ import { createToolRegistry, type ToolRegistry } from "./tool/registry.js"
 /**
  * Core 的组装入口。
  *
- * 整个运行时的依赖图在这里一次性接好，外部（server / CLI / 测试）只面对
+ * 整个运行时的依赖图在这里一次性接好，外部（server / CLI / 未来的测试）只面对
  * 一个 `Core` 对象，不需要知道内部有哪些零件、谁依赖谁。
  * 这样做的直接好处是：想验证 Core 是否真的与 UI 无关，
  * 只要看这个文件有没有出现 HTTP 或 UI 相关的东西就够了。

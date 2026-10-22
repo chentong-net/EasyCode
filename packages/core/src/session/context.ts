@@ -9,15 +9,15 @@ import type { SessionHandle } from "./runtime.js"
 const logger = createLogger("session.context")
 
 /**
- * 系统上下文与 baseline 冻结。
+ * 系统上下文与 baseline（基线）冻结。
  *
  * 核心机制（与 OpenCode 保持一致）：
  *
- * - 一个「上下文纪元」（epoch）开始时，把所有动态来源渲染成一份完整的
- *   baseline 文本，持久化保存，之后在整个 epoch 内**逐字节复用**，
+ * - 一个 epoch（上下文周期）开始时，把所有动态来源渲染成一份完整的
+ *   baseline（基线）文本，持久化保存，之后在整个 epoch 内**逐字节复用**，
  *   绝不再重新渲染。
  * - 某个来源发生变化时，不改写 baseline，而是**追加**一条系统消息告知模型新状态。
- * - 压缩完成后开启新纪元：重新渲染 baseline，并把旧纪元的中途系统消息
+ * - compaction（压缩）完成后开启新 epoch：重新渲染 baseline，并把旧 epoch 的中途系统消息
  *   从模型可见历史中过滤掉（它们已经被折进新的 baseline 了）。
  *
  * 为什么要这么做：主流模型服务商都有前缀缓存，命中条件是请求最前面若干 token
@@ -29,7 +29,7 @@ const logger = createLogger("session.context")
 /**
  * 一个上下文来源。
  *
- * 刻意做得比 OpenCode 简单：那边是带 codec / removal 渲染器的五件套代数，
+ * 刻意做得比 OpenCode 简单：那边用 codec / removal 渲染器组合出五部分抽象，
  * 这里只需要「采样一个值」和「把值渲染成文本」两件事。
  * 将来要加 AGENTS.md 注入或技能列表，往 sources 数组里加一个实现即可，接口不用动。
  */
@@ -52,7 +52,7 @@ export interface ContextSource {
   render(value: unknown): string
 }
 
-/** 一次 provider turn 之前得到的系统上下文体。 */
+/** 一次 provider turn（模型调用轮次）之前得到的系统上下文体。 */
 export interface SystemContextResult {
   /** 冻结的 baseline 原文，本 epoch 内不变 */
   baseline: string
@@ -64,11 +64,11 @@ export interface SystemContextResult {
 
 export interface SystemContextManager {
   /**
-   * 每个 provider turn 之前调用：首次渲染并冻结 baseline，之后只做变化比对。
-   * 这是唯一允许创建新 epoch 的入口（另一个是压缩完成后的 replace）。
+   * 每个 provider turn 之前调用：首次渲染并冻结 baseline（基线），之后只做变化比对。
+   * 无持久化上下文时，ensure 会创建首个 epoch；compaction 完成后由 replace 重建。
    */
   ensure(handle: SessionHandle): Promise<SystemContextResult>
-  /** 压缩完成后重建 baseline，开启新纪元 */
+  /** compaction（压缩）完成后重建 baseline，开启新 epoch（上下文周期） */
   replace(handle: SessionHandle): Promise<SystemContextResult>
 }
 
@@ -135,7 +135,12 @@ export const createSystemContextManager = (sources: ContextSource[] = createDefa
       const baseline = renderBaseline(ordered, values)
       const baselineSeq = handle.state.lastSeq
       await handle.saveContext({ epoch: 1, baseline, lastSeen: values, baselineSeq })
-      logger.info("已建立上下文纪元", { sessionID: session.id, epoch: 1, baselineSeq, baselineChars: baseline.length })
+      logger.info("已建立 epoch（上下文周期）", {
+        sessionID: session.id,
+        epoch: 1,
+        baselineSeq,
+        baselineChars: baseline.length,
+      })
       // 首轮不产生更新消息：新渲染的 baseline 里已经包含了这些信息
       return { baseline, baselineSeq, updates: [] }
     }
@@ -171,13 +176,18 @@ export const createSystemContextManager = (sources: ContextSource[] = createDefa
     const previous = await handle.readContext()
     const values = await sample(session)
     const baseline = renderBaseline(ordered, values)
-    // 新纪元的 baseline 序号取当前最大序号：此后一切系统消息都大于它，
-    // 而旧纪元的中途更新消息都小于它，从而被历史投影过滤掉
+    // 新 epoch 的 baseline 序号取当前最大序号：此后一切系统消息都大于它，
+    // 而旧 epoch 的中途更新消息都小于它，从而被历史投影过滤掉
     const baselineSeq = handle.state.lastSeq
     const epoch = (previous?.epoch ?? 1) + 1
 
     await handle.saveContext({ epoch, baseline, lastSeen: values, baselineSeq })
-    logger.info("已重建上下文纪元", { sessionID: session.id, epoch, baselineSeq, baselineChars: baseline.length })
+    logger.info("已重建 epoch（上下文周期）", {
+      sessionID: session.id,
+      epoch,
+      baselineSeq,
+      baselineChars: baseline.length,
+    })
 
     return { baseline, baselineSeq, updates: [] }
   }

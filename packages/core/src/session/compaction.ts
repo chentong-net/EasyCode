@@ -17,7 +17,7 @@ import type { SessionHandle } from "./runtime.js"
 import { taskMemorySummary } from "./task.js"
 
 /**
- * 历史压缩。
+ * 历史 compaction（压缩）。
  *
  * 触发条件和保留区都由上下文窗口动态推导：先扣除实际输出预算和安全余量，
  * 再按目标大小决定最近原文的保留量，避免固定参数在小窗口下互相冲突。
@@ -30,10 +30,10 @@ import { taskMemorySummary } from "./task.js"
  * 2. **按完整交换保留最近原文**。摘要会丢失细节（具体的行号、变量名），
  *    而接下来的工作恰恰最需要这些细节，因此保留区从用户消息开始。
  * 3. **分层降级**。摘要输入过大时先分块再合并；模型摘要不可用时生成
- *    基于任务账本的确定性检查点，让任务仍能继续。
+ *    基于任务状态记录的确定性 checkpoint（检查点），让任务仍能继续。
  */
 
-/** 根据上下文窗口推导出的压缩预算，不再使用与窗口无关的固定值。 */
+/** 根据上下文窗口推导出的 compaction（压缩）预算，不再使用与窗口无关的固定值。 */
 export interface CompactionBudget {
   contextWindow: number
   /** 为 provider 实际声明的输出预留，最多占窗口的四分之一。 */
@@ -42,11 +42,11 @@ export interface CompactionBudget {
   safetyMargin: number
   /** 触发 provider 请求前的硬输入上限。 */
   hardInputTokens: number
-  /** 达到该值时开始自动压缩。 */
+  /** 达到该值时开始自动执行 compaction。 */
   triggerTokens: number
-  /** 压缩后希望达到的目标大小。 */
+  /** compaction 后希望达到的目标大小。 */
   targetTokens: number
-  /** 压缩后原样保留的最近原文，按估算 token 计 */
+  /** compaction 后原样保留的最近原文，按估算 token 计 */
   keepTokens: number
   /** 摘要请求最多可以使用的输入 token。 */
   summaryInputTokens: number
@@ -54,7 +54,7 @@ export interface CompactionBudget {
   summaryOutputTokens: number
 }
 
-/** 摘要请求里单条工具结果的字符上限。压缩的目的就是缩小体积，这里要更激进。 */
+/** 摘要请求里单条工具结果的字符上限。compaction 的目的就是缩小体积，这里要更激进。 */
 const TRANSCRIPT_TOOL_OUTPUT_LIMIT = 2_000
 
 export type CompactionStatus = "skipped" | "completed" | "failed"
@@ -78,7 +78,7 @@ export interface CompactionDeps {
 
 export interface CompactInput {
   handle: SessionHandle
-  /** 当前纪元的 baseline 序号 */
+  /** 当前 epoch（上下文周期）的 baseline（基线）序号 */
   baselineSeq: number
   /** 本次请求的完整系统提示词（agent 提示词 + baseline） */
   system: string[]
@@ -95,9 +95,9 @@ export interface CompactionManager {
   budget(): CompactionBudget
   /** 估算当前请求的 token 占用 */
   estimate(system: string[], messages: LLMMessage[], tools: ToolDefinition[]): number
-  /** 必要时压缩；调用方根据 completed 状态决定是否重建请求。 */
+  /** 必要时执行 compaction；调用方根据 completed 状态决定是否重建请求。 */
   compactIfNeeded(input: CompactInput): Promise<CompactionOutcome>
-  /** 上下文超限后的强制压缩。跳过节流判断，直接尝试。 */
+  /** 上下文超限后的强制 compaction。跳过节流判断，直接尝试。 */
   compactAfterOverflow(input: CompactInput): Promise<CompactionOutcome>
   /** 把最终重建、即将发送给主模型的请求写入 after.json。 */
   recordAfter(backupID: string | undefined, request: LLMRequest): Promise<void>
@@ -120,7 +120,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       return { status: "skipped", reason: "context_fits", beforeTokens: estimated, attempts: 0, usedFallback: false }
     }
 
-    logger.info("上下文接近上限，开始压缩", {
+    logger.info("上下文接近上限，开始执行 compaction", {
       sessionID: input.handle.id,
       estimatedTokens: estimated,
       triggerTokens: options.triggerTokens,
@@ -132,7 +132,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
   }
 
   const compactAfterOverflow = async (input: CompactInput): Promise<CompactionOutcome> => {
-    logger.info("模型报告上下文超限，尝试压缩后重试", { sessionID: input.handle.id })
+    logger.info("模型报告上下文超限，尝试执行 compaction 后重试", { sessionID: input.handle.id })
     return compact(input, "overflow", estimate(input.system, input.messages, input.tools))
   }
 
@@ -170,7 +170,11 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     const { head, tail } = splitHistory(candidates, keepTokens)
 
     if (head.length === 0 || tail.length === 0) {
-      logger.warn("历史长度不足以压缩，跳过", { sessionID: input.handle.id, head: head.length, tail: tail.length })
+      logger.warn("历史长度不足以执行 compaction，跳过", {
+        sessionID: input.handle.id,
+        head: head.length,
+        tail: tail.length,
+      })
       await backups.finalize(backup, {
         status: "failed",
         outcomeReason: "nothing_to_compact",
@@ -187,7 +191,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       }
     }
 
-    // 已有检查点作为摘要输入，但不混入待压缩消息和保留区。
+    // 已有 checkpoint（检查点）作为摘要输入，但不混入待 compaction 的消息和保留区。
     const subject = head
 
     const summarized = await summarize({ ...input, previousSummary: previous?.text }, subject, backup)
@@ -214,7 +218,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     const usedFallback = summarized === undefined
     const attempts = summarized?.attempts ?? 1
     if (usedFallback) {
-      logger.warn("模型摘要不可用，使用任务账本生成确定性检查点", {
+      logger.warn("模型摘要不可用，使用任务状态记录生成确定性 checkpoint（检查点）", {
         sessionID: input.handle.id,
         summarizedMessages: subject.length,
       })
@@ -236,7 +240,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     const afterMessages = buildLLMMessages(input.handle.state, { baselineSeq: input.baselineSeq })
     const afterTokens = estimate(input.system, afterMessages, input.tools)
 
-    logger.info("压缩完成", {
+    logger.info("compaction 完成", {
       sessionID: input.handle.id,
       summarizedMessages: subject.length,
       keptMessages: tail.length,
@@ -248,7 +252,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       hardInputTokens: options.hardInputTokens,
     })
     if (afterTokens > options.triggerTokens) {
-      logger.warn("压缩后仍高于软阈值，下一轮将继续收缩", {
+      logger.warn("compaction 后仍高于软阈值，下一轮将继续收缩", {
         sessionID: input.handle.id,
         afterTokens,
         triggerTokens: options.triggerTokens,
@@ -377,7 +381,10 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
             }
             continue
           }
-          logger.warn("摘要请求失败，本次不压缩", { sessionID: input.handle.id, error: describeError(error) })
+          logger.warn("摘要请求失败，本次不执行 compaction", {
+            sessionID: input.handle.id,
+            error: describeError(error),
+          })
           return undefined
         }
       }
@@ -417,7 +424,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
 
     const chunks = splitMessagesForSummary(subject, Math.max(512, Math.floor(available * 0.75)))
     if (chunks.length === 0 || chunks.length > 8) {
-      logger.warn("待压缩历史无法稳定分块", { sessionID: input.handle.id, chunks: chunks.length })
+      logger.warn("待执行 compaction 的历史无法稳定分块", { sessionID: input.handle.id, chunks: chunks.length })
       return undefined
     }
 
@@ -543,7 +550,7 @@ const delay = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
   })
 
 /**
- * 模型摘要不可用时仍生成可继续工作的检查点。它可能损失过程细节，但会保留
+ * 模型摘要不可用时仍生成可继续工作的 checkpoint（检查点）。它可能损失过程细节，但会保留
  * 任务契约、最近用户请求、修改文件、失败和验证状态。
  */
 const buildFallbackSummary = (
@@ -573,7 +580,7 @@ const buildFallbackSummary = (
     ...(task?.contract.constraints.length ? task.contract.constraints.map((item) => `- ${item}`) : ["- 无"]),
     "",
     "## 决定",
-    `- 使用确定性降级检查点继续任务。`,
+    `- 使用确定性降级 checkpoint（检查点）继续任务。`,
     "",
     "## 已完成",
     `- 已保留 ${users.length} 条最近用户请求。`,
@@ -597,7 +604,7 @@ const buildFallbackSummary = (
       ? verifications.map((item) => `- 验证 ${item.status}：${item.summary}`)
       : [`- 验证状态：${task?.verificationStatus ?? "unknown"}`]),
     "",
-    "## 任务账本",
+    "## 任务状态",
     taskMemorySummary(task),
   ]
   return truncateToTokenBudget(lines.join("\n"), maxTokens)
@@ -608,7 +615,7 @@ const buildFallbackSummary = (
  *
  * 从尾部往前累加估算 token，直到超过 keepTokens 为止，那之前的全部进 head。
  * 至少要保留一条消息在 tail 里：如果连最后一条都被算进 head，
- * 压缩后模型会完全失去最近发生的事情。
+ * 执行 compaction 后模型会完全失去最近发生的事情。
  */
 const splitHistory = (history: Message[], keepTokens: number): { head: Message[]; tail: Message[] } => {
   if (history.length === 0) return { head: [], tail: [] }
@@ -627,7 +634,7 @@ const splitHistory = (history: Message[], keepTokens: number): { head: Message[]
   }
 
   // 尽可能从用户消息开始保留交换，但只有仍在预算内时才这样做。Coding Agent
-  // 的一个用户请求可能包含几十个工具回合，不能因此让整个任务都变成保留区。
+  // 的一个用户请求可能包含几十个 provider turn（模型调用轮次），不能因此让整个任务都变成保留区。
   if (splitIndex > 0 && splitIndex < history.length) {
     for (let index = splitIndex; index >= 0; index -= 1) {
       if (history[index]?.role === "user") {
@@ -638,7 +645,7 @@ const splitHistory = (history: Message[], keepTokens: number): { head: Message[]
   }
 
   // 至少保留最后一条消息，同时确保还有可摘要的历史。单个超长交换必须在
-  // 助手消息边界内切分；原始用户目标由独立任务账本继续携带。
+  // 助手消息边界内切分；原始用户目标由独立任务状态继续携带。
   splitIndex = Math.min(splitIndex, history.length - 1)
   if (splitIndex === 0 && history.length > 1) splitIndex = 1
 
@@ -648,7 +655,7 @@ const splitHistory = (history: Message[], keepTokens: number): { head: Message[]
 const estimateMessagesTokens = (messages: Message[]): number =>
   messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
 
-/** 估算单条消息的体积，用于决定压缩边界。 */
+/** 估算单条消息的体积，用于决定 compaction 边界。 */
 const estimateMessageTokens = (message: Message): number => {
   switch (message.role) {
     case "user":
@@ -678,11 +685,11 @@ const textOfPart = (part: Part): string => {
 const toolOutputText = (part: Extract<Part, { type: "tool" }>): string => {
   if (part.state.status === "success") return part.state.content.map((c) => (c.type === "text" ? c.text : "")).join("")
   if (part.state.status === "error") return part.state.error
-  return "(未结算)"
+  return "(尚未完成)"
 }
 
 /**
- * 把待压缩的消息渲染成纯文本对话稿。
+ * 把待执行 compaction 的消息渲染成纯文本对话稿。
  *
  * 这里不用 provider 原生的消息格式，原因是摘要请求只需要「内容」，
  * 用纯文本可以避免工具调用配对等协议约束带来的额外复杂度，
@@ -720,7 +727,7 @@ const truncate = (text: string, limit: number): string => {
 }
 
 /** 摘要请求的系统提示词。 */
-const SUMMARY_SYSTEM_PROMPT = `你是一个 Coding Agent 的工作记忆压缩器，负责把较早对话整理成可供后续继续工作的结构化检查点。
+const SUMMARY_SYSTEM_PROMPT = `你是一个 Coding Agent 的工作记忆压缩器，负责把较早对话整理成可供后续继续工作的结构化 checkpoint（检查点）。
 
 要求：
 - 只保留后续工作必需的信息，每条尽量使用单行短句。
@@ -771,17 +778,17 @@ const buildSummaryPrompt = (
     sections.push(["# 已有摘要", previousSummary, ""].join("\n"))
   }
   if (taskMemory) {
-    sections.push(["# 当前任务账本", taskMemory, ""].join("\n"))
+    sections.push(["# 当前任务状态", taskMemory, ""].join("\n"))
   }
   sections.push(
     [
-      "# 待压缩的对话",
+      "# 待执行 compaction 的对话",
       transcript,
       "",
       "# 任务",
       previousSummary
-        ? "把「已有摘要」与「待压缩的对话」合并成一份新摘要。新信息优先；已解决问题移出阻塞和进行中；保留未解决问题与仍然有效的决定。"
-        : "把「待压缩的对话」整理成工作记忆摘要。",
+        ? "把「已有摘要」与「待执行 compaction 的对话」合并成一份新摘要。新信息优先；已解决问题移出阻塞和进行中；保留未解决问题与仍然有效的决定。"
+        : "把「待执行 compaction 的对话」整理成工作记忆摘要。",
     ].join("\n"),
   )
   return sections.join("\n")

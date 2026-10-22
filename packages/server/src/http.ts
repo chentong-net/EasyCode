@@ -15,9 +15,8 @@ const MAX_BODY_BYTES = 1024 * 1024
 /**
  * 所有响应共有的头。
  *
- * CORS 放开到 `*` 是安全的，因为服务只监听回环地址，且每个请求都必须携带
- * 启动时随机生成的 token；跨域限制在这里提供不了额外保护，反而会让
- * 渲染进程无法访问本地服务。
+ * 使用回环地址并启用 token 时，CORS 放开到 `*` 仍依赖 token 保护接口。
+ * 当调用方显式覆盖 host 或使用 `--no-token` 时，不能把这条结论当作安全保证。
  */
 export const commonHeaders = (): Record<string, string> => ({
   "access-control-allow-origin": "*",
@@ -47,7 +46,7 @@ export const sendError = (res: ServerResponse, tag: ErrorTag, message: string): 
   sendJSON(res, statusForTag(tag), { error: { tag, message } })
 }
 
-/** 应答 CORS 预检请求。带自定义头的请求一定会先发 OPTIONS。 */
+/** 应答 CORS 预检请求。浏览器跨域请求携带自定义头时通常会先发 OPTIONS。 */
 export const sendPreflight = (res: ServerResponse): void => {
   res.writeHead(204, commonHeaders())
   res.end()

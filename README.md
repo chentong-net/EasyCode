@@ -2,6 +2,8 @@
 
 EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。
 
+术语说明：本文保留 `epoch`、`baseline`、`checkpoint`、`snapshot`、`compaction` 的原始英文，并在首次出现时用括号标注中文提示。`epoch` 指一次冻结上下文从建立到重建的周期，不是模型训练中的 epoch，也不是 Unix 时间起点。
+
 ## 包结构
 
 | 包 | 职责 | 上游依赖 |
@@ -24,7 +26,7 @@ packages/
   protocol/src/      接口契约
   core/src/
     llm/             OpenAI 兼容协议的报文编解码与流式解析
-    session/         事件日志、投影、上下文组装、历史压缩
+    session/         事件日志、投影、上下文组装、compaction（压缩）
     tool/            工具定义、内置工具、路径解析与目录边界
     permission/      权限规则求值
     runner/          回合循环
@@ -58,11 +60,11 @@ cp .env.example .env
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容协议的接口地址 |
 | `OPENAI_API_KEY` | 必填 | 接口密钥 |
 | `OPENAI_MODEL` | 必填 | 模型 id，会话创建后保持固定 |
-| `OPENAI_MODEL_CONTEXT_WINDOW` | `128000` | 上下文窗口大小，压缩阈值据此计算 |
+| `OPENAI_MODEL_CONTEXT_WINDOW` | `128000` | 上下文窗口大小，compaction（压缩）阈值据此计算 |
 | `OPENAI_MAX_OUTPUT_TOKENS` | `8192` | 单轮回复的输出预算，参与上下文计算 |
 | `OPENAI_TEMPERATURE` | 空 | 采样温度；留空时请求体省略该字段 |
 | `OPENAI_EXTRA_HEADERS` | 空 | 附加请求头，格式为 `KEY1=VALUE1,KEY2=VALUE2` |
-| `EASYCODE_DATA_DIR` | `~/easycode/.easycode` | 会话日志、上下文快照与工具输出的存放目录，支持 `~` |
+| `EASYCODE_DATA_DIR` | `~/easycode/.easycode` | 会话日志、context snapshot（快照）与工具输出的存放目录，支持 `~` |
 | `EASYCODE_LOG_LEVEL` | `info` | 取值 `debug` / `info` / `warn` / `error`；日志写入 stderr，设置 `EASYCODE_LOG_FILE` 时同时落盘 |
 | `EASYCODE_ENV_FILE` | 空 | 显式指定配置文件路径，优先级高于工作目录下的 `.env` |
 
@@ -140,6 +142,8 @@ npm run package --workspace @easycode/desktop
 
 服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏由界面自绘，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
 
+开发模式下，桌面端读取仓库根目录的 `.env`；打包后的应用读取 Electron `userData` 目录下的 `.env`。
+
 ## 运行机制
 
 ### 回合循环
@@ -151,31 +155,31 @@ npm run package --workspace @easycode/desktop
 3. 组装任务记忆、历史上下文和工具定义并调用模型
 4. 模型产出的工具调用先写入事件日志，再按顺序交给工具执行
 5. 工具结果更新修改文件、验证状态、失败观察和重复调用计数
-6. 全部工具调用结算完成之后，判断是否进入下一个 provider turn
+6. 全部工具调用完成并写入结果之后，判断是否进入下一个 provider turn（模型调用轮次）
 7. 代码修改后若尚未验证，Runner 进入验证阶段并要求模型补做验证或说明无法验证
 8. 回合结束前写入结构化任务结果，再写入空闲事件
 
-任务状态通过 `task.updated` 事件持久化，包含目标、验收条件、阶段、修改文件、验证结果和最终结果。它独立于普通消息历史，压缩对话上下文时仍会注入模型请求尾部。
+任务状态通过 `task.updated` 事件持久化，包含目标、验收条件、阶段、修改文件、验证结果和最终结果。它独立于普通消息历史，执行 compaction（压缩）时仍会注入模型请求尾部。
 
 ### 事件日志与投影
 
-每个会话对应一份 append-only 的 `events.jsonl`，它是状态的唯一真相来源；消息列表与界面展示由 `applyEvent` 投影得到，同一份日志重放所得结果一致。事件分两类：带 `seq` 的持久化事件可通过 `after` 参数补发；`text.delta` 这类瞬时事件经 SSE 推送，用于展示生成过程。
+每个会话对应一份 append-only 的 `events.jsonl`，它是状态的单一事实来源；消息列表与界面展示由 `applyEvent` 投影得到，同一份日志重放所得结果一致。事件分两类：带 `seq` 的持久化事件可通过 `after` 参数补发；`text.delta` 这类瞬时事件经 SSE 推送，用于展示生成过程。
 
-### 上下文组装与压缩
+### 上下文组装与 compaction（压缩）
 
-系统提示词在一个上下文纪元（epoch）内逐字节保持一致，工作目录等动态信息从消息流尾部追加，以提升 prompt 缓存命中率。
+在一个 epoch（上下文周期）内，Agent 系统提示词与冻结的 baseline（基线）逐字节保持一致，以提升 prompt 缓存命中率。工作目录位于 baseline 中；只有日期等来源发生变化时，才在历史中追加系统消息，而不是改写 baseline。
 
-压缩预算根据上下文窗口动态推导，不再使用固定 20K 缓冲区和 8K 保留区。Runner 会为输出、安全余量和最近完整对话交换分别计算空间，并在上下文达到软阈值时自动压缩。
+compaction（压缩）预算根据上下文窗口动态推导，不再使用固定 20K 缓冲区和 8K 保留区。Runner 会为输出、安全余量和最近对话分别计算空间，并在上下文达到软阈值时自动执行 compaction。
 
-摘要使用结构化工作记忆模板，保留目标、限制、决定、完成状态、阻塞、下一步、关键文件和验证结果。最近历史按完整用户交换保留，不包含旧推理文本。摘要输入超过预算时会分块摘要再合并；模型摘要失败、超时或输出被截断时，会生成确定性降级检查点，而不是直接放弃压缩。
+摘要使用结构化工作记忆模板，保留目标、限制、决定、完成状态、阻塞、下一步、关键文件和验证结果。最近历史会尽量从完整用户交换开始保留；当交换本身超过预算时，会在消息边界内切分。旧推理文本不会进入摘要输入。摘要内容超过预算时会分块摘要再合并；模型摘要失败、超时或输出被截断时，会生成确定性的降级 checkpoint（检查点），而不是直接放弃 compaction。
 
-provider 报告上下文超限时，Runner 会重新投影历史、重建请求并按比例缩小保留区后重试。压缩结果会记录触发原因、前后预算估算、尝试次数和是否降级。
+provider 报告上下文超限时，Runner 会重新投影历史、重建请求并缩小保留区后重试，最多进行两次 compaction 重试。compaction 诊断目录会记录触发原因、前后预算估算、尝试次数和是否降级。
 
 ### 权限
 
-规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认效果为 `ask`。一次调用涉及多个资源时取最严格的结果。
+规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认裁决为 `ask`。一次调用涉及多个资源时取最严格的结果。
 
-内置 `build` agent 的规则集：默认允许；访问工作目录之外的路径、读取 `.env` 与 `.env.*` 文件、执行含 `rm -rf` 或 `sudo` 的命令需要用户确认。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
+内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
 
 ### 内置工具
 
@@ -192,7 +196,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 `glob` 与 `grep` 默认跳过 `node_modules`、`.git`、`dist` 等目录，`grep` 另外跳过二进制文件与超过 2MB 的文件。超长工具输出写入 `<EASYCODE_DATA_DIR>/tool-output/`，消息中保留落盘路径。
 
-工具结算包含结构化元数据：副作用类型、失败原因、是否可重试、修改文件路径和验证结果。`bash` 的非零退出码与超时会作为失败返回；测试、类型检查、构建和 lint 类命令会作为验证证据更新任务状态。文件编辑与整体写入使用同目录临时文件加原子替换。
+工具调用完成后会写入结构化元数据：副作用类型、失败原因、是否可重试、修改文件路径和验证结果。`bash` 的非零退出码与超时会作为失败返回；测试、类型检查、构建和 lint 类命令会作为验证证据更新任务状态。文件编辑与整体写入使用同目录临时文件加原子替换。
 
 ## HTTP 接口
 
@@ -220,21 +224,21 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 <EASYCODE_DATA_DIR>/
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
-  sessions/<会话ID>/context.json    上下文纪元状态
-  compaction-contexts/<会话ID>/<YYYYMMDDHHmm-t预估Token-压缩ID>/
-                                     压缩前后的完整请求与摘要诊断
+  sessions/<会话ID>/context.json    epoch（上下文周期）状态
+  compaction-contexts/<会话ID>/<YYYYMMDDHHmm-t预估Token-compactionID>/
+                                     compaction 前后的完整请求与摘要诊断
   tool-output/tool_*.txt            超长工具输出的落盘文件
 ```
 
-`session.json` 是事件日志的派生缓存，供会话列表读取；它结构不符时，会话由事件日志重新推导。
+`session.json` 是事件日志的派生缓存，供会话列表读取。当前实现下，它缺失、无法解析或结构不符时会被跳过，不会自动从事件日志重建；事件日志本身仍保留完整的 `session.created` 元信息。
 
-每次真正开始上下文压缩时，还会在
+每次真正开始 compaction（压缩）时，还会在
 `<EASYCODE_DATA_DIR>/compaction-contexts/<会话ID>/` 下创建独立诊断目录：
 
-- `before.json`：触发压缩前准备发送给主模型的完整请求；
-- `after.json`：新上下文纪元建立后，真正准备发送给主模型的完整请求；
+- `before.json`：触发 compaction 前准备发送给主模型的完整请求；
+- `after.json`：新 epoch 建立后，真正准备发送给主模型的完整请求；
 - `summaries/`：摘要模型每次调用的完整输入、结束原因、usage 和模板校验结果，失败或中间分块会保留原始摘要文本；
-- `metadata.json`：触发原因、预算、压缩前后估算、保留消息、摘要尝试次数和是否降级。
+- `metadata.json`：触发原因、预算、compaction 前后估算、保留消息、摘要尝试次数和是否降级。
 
 诊断文件不包含 API Key 等鉴权信息，使用仅当前用户可读的文件权限。备份失败只记录警告，不会中断主任务。
 
@@ -250,4 +254,4 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 事件流断线重连，按 `seq` 补发缺失事件
 - 回合具有显式任务阶段、验证门槛、无进展保护和结构化最终结果
 - 步数预算进入任务状态，达到软上限时要求模型精简计划，达到硬上限时以部分完成结果收尾
-- 上下文用量超过阈值时自动压缩，支持分块摘要、预算收缩和确定性降级
+- 上下文用量超过阈值时自动执行 compaction（压缩），支持分块摘要、预算收缩和确定性降级

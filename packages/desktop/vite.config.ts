@@ -8,8 +8,8 @@ import { defineConfig } from "vite"
  * 用 esbuild 直接打成单个 CJS 文件更简单——不需要 dev server、
  * 不需要热更新，也不需要在打包时处理 node_modules 的软链问题。
  *
- * `base: "./"` 是必须的：打包后页面用 file:// 协议加载，
- * 绝对路径的资源引用会全部 404。
+ * `base: "./"` 让构建产物中的资源引用保持相对路径，便于通过自定义
+ * `app://easycode` 协议加载，而不依赖固定的站点根路径。
  */
 export default defineConfig({
   root: "src/renderer",

@@ -101,7 +101,7 @@ const messageBase = {
   createdAt: z.number(),
 }
 
-/** 用户消息：由一条已提升的输入产生。 */
+/** 用户消息：由一条已转为可见消息的输入产生。 */
 export const UserMessage = z.object({
   ...messageBase,
   role: z.literal("user"),
@@ -111,7 +111,7 @@ export const UserMessage = z.object({
 export type UserMessage = z.infer<typeof UserMessage>
 
 /**
- * 助手消息：一次 provider turn 产生一条。
+ * 助手消息：一次 provider turn（模型调用轮次）产生一条。
  *
  * 注意这里把 usage / finish / error 直接挂在消息上，而不是单独建 step 实体，
  * 因为「一次模型调用 = 一条助手消息」是这套设计里的固定对应关系。
@@ -134,10 +134,11 @@ export const AssistantMessage = z.object({
 export type AssistantMessage = z.infer<typeof AssistantMessage>
 
 /**
- * 系统消息：上下文发生变化时追加的时序指令。
+ * 系统消息：上下文来源发生变化时追加的时序指令。
  *
- * 它只出现在压缩点之后，并且是「追加」而非「改写」系统提示词，
- * 目的是让系统提示词前缀在整个 epoch 内保持逐字节不变，从而命中 provider 的缓存。
+ * 它既可能出现在 compaction（压缩）之后，也可能在此之前因日期等来源变化而出现。
+ * 消息采用「追加」而非「改写」系统提示词，目的是让系统提示词前缀在整个
+ * epoch（上下文周期）内保持逐字节不变，从而命中 provider 的缓存。
  */
 export const SystemMessage = z.object({
   ...messageBase,
@@ -148,10 +149,11 @@ export const SystemMessage = z.object({
 export type SystemMessage = z.infer<typeof SystemMessage>
 
 /**
- * 压缩检查点消息。
+ * compaction 生成的 checkpoint（检查点）消息。
  *
- * 历史被压缩后，被压缩掉的部分由这条消息代替；`recentMessageIDs` 记录
- * 压缩时原样保留的最近若干条消息，投影时按原顺序拼在摘要之后。
+ * 历史执行 compaction（压缩）后，被压缩掉的部分由这条消息代替；
+ * `recentMessageIDs` 记录执行 compaction 时原样保留的最近若干条消息，
+ * 投影时按原顺序拼在摘要之后。
  */
 export const CompactionMessage = z.object({
   ...messageBase,

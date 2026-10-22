@@ -12,8 +12,7 @@ import { defineTool, type ToolContext, type ToolResult } from "../tool.js"
  * 三条硬约束：
  * 1. 单次最多返回 2000 行、单行最多 2000 字符。模型不会因为一次拿到 10 万行
  *    就理解得更好，只会把上下文塞满。
- * 2. 二进制文件直接拒绝，不做猜测。把二进制当文本读出来会产生一堆乱码，
- *    而且极耗 token。
+ * 2. 文件开头包含 NUL 字节时按二进制拒绝；这是启发式检测，不能覆盖所有二进制格式。
  * 3. 图片以内容块形式返回（base64），模型可以真正「看到」截图。
  */
 
@@ -55,7 +54,7 @@ export const readTool = defineTool({
   input: inputSchema,
   effect: "read",
   resources: (input) => [input.path],
-  // 记住「总是允许读这个文件」是有风险且没什么价值的，保持每次询问
+  // read 不提供持久化的「总是允许」模式；是否询问仍由权限规则决定
   savePatterns: () => [],
   execute: async (input, context) => {
     const target = resolveToolPath(context.directory, input.path)

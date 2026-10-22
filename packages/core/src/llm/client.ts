@@ -7,9 +7,9 @@ import type { LLMClient, LLMClientConfig, LLMEvent, LLMRequest } from "./types.j
 /**
  * OpenAI 兼容协议的流式客户端。
  *
- * 它只负责「一次 provider turn」：发一个请求，把响应字节流翻译成归一化事件。
- * 不重试、不压缩、不碰会话状态——那些是 runner 的职责。
- * 保持这一层的单薄，是让上层能自由编排（压缩重试、步数控制、中断）的前提。
+ * 它只负责「一次 provider turn（模型调用轮次）」：发一个请求，把响应字节流翻译成归一化事件。
+ * 不重试、不执行 compaction（压缩）、不碰会话状态——那些是 runner 的职责。
+ * 保持这一层的单薄，是让上层能自由编排（compaction 重试、步数控制、中断）的前提。
  */
 export const createLLMClient = (config: LLMClientConfig, logger: Logger = createLogger("llm")): LLMClient => ({
   stream: (request) => streamTurn(config, request, logger),

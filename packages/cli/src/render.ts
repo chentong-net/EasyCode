@@ -64,7 +64,7 @@ export const createSessionRenderer = (options: SessionRendererOptions): SessionR
   const printedChars = new Map<string, number>()
   /** part 键 → 是否已经输出过前缀（推理与正文各有一个前缀）。 */
   const startedParts = new Set<string>()
-  /** 工具调用 ID → 工具名。结算事件里不带名字，需要回查。 */
+  /** 工具调用 ID → 工具名。工具完成事件里不带名字，需要回查。 */
   const toolNames = new Map<string, string>()
   /** 审批询问串行化：同一时刻只问一个问题，避免多个请求的输出交错在一起。 */
   let askQueue: Promise<void> = Promise.resolve()
@@ -196,7 +196,7 @@ export const createSessionRenderer = (options: SessionRendererOptions): SessionR
 
       case "compaction.ended":
         ensureNewline()
-        write(`\n[历史已压缩，保留最近 ${event.recentMessageIDs.length} 条消息]\n`)
+        write(`\n[已执行 compaction（压缩），保留最近 ${event.recentMessageIDs.length} 条消息]\n`)
         break
 
       case "run.interrupted":

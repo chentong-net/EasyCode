@@ -13,7 +13,7 @@ export const ErrorTag = z.enum([
   "bad_request",
   /** 目标资源不存在，例如会话 id 无效 */
   "not_found",
-  /** 服务端内部错误。这类错误的细节只写日志，不返回给客户端 */
+  /** 服务端内部错误；当前服务端会把异常的 message 写入响应体，同时记录日志 */
   "internal",
 ])
 

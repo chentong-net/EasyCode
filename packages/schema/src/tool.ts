@@ -61,7 +61,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinition>
  * 模型请求的一次工具调用。
  *
  * `input` 是原始入参（已完成 JSON 解析但尚未按工具 schema 校验），
- * 校验与执行由工具注册中心负责。
+ * 校验与执行由工具注册表负责。
  */
 export const ToolCall = z.object({
   callID: z.string(),

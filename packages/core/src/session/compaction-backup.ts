@@ -62,8 +62,8 @@ export interface CompactionBackupStore {
 }
 
 /**
- * 压缩诊断文件只写入当前数据目录。所有写入都尽力而为，备份失败不能改变
- * Agent 的实际压缩结果。
+ * compaction（压缩）诊断文件只写入当前数据目录。所有写入都尽力而为，
+ * diagnostic snapshot（快照）写入失败不能改变 Agent 的实际 compaction 结果。
  */
 export const createCompactionBackupStore = (
   dataDir: string,
@@ -121,7 +121,7 @@ export const createCompactionBackupStore = (
       await writeJSON(join(directory, "metadata.json"), backup.metadata)
       return backup
     } catch (error) {
-      logger.warn("无法创建压缩上下文备份", { sessionID: input.sessionID, id: input.id, error })
+      logger.warn("无法创建 compaction 上下文诊断", { sessionID: input.sessionID, id: input.id, error })
       return undefined
     }
   }
@@ -172,7 +172,7 @@ export const createCompactionBackupStore = (
       await writeJSON(join(backup.directory, "metadata.json"), backup.metadata)
       if (metadata.status !== "completed") backups.delete(backup.id)
     } catch (error) {
-      logger.warn("无法写入压缩诊断元数据", { sessionID: backup.sessionID, id: backup.id, error })
+      logger.warn("无法写入 compaction 诊断元数据", { sessionID: backup.sessionID, id: backup.id, error })
     }
   }
 
@@ -203,7 +203,7 @@ export const createCompactionBackupStore = (
       }
       await writeJSON(join(backup.directory, "metadata.json"), backup.metadata)
     } catch (error) {
-      logger.warn("无法写入压缩后的上下文备份", { sessionID: backup.sessionID, id: backup.id, error })
+      logger.warn("无法写入 compaction 后的上下文诊断", { sessionID: backup.sessionID, id: backup.id, error })
     } finally {
       backups.delete(backupID)
     }

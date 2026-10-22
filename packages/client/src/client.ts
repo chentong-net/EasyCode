@@ -69,7 +69,7 @@ export interface EventStreamOptions {
 }
 
 export interface EasyCodeClient {
-  /** 健康检查。桌面端主进程用它判断 sidecar 是否就绪。 */
+  /** 健康检查。渲染层用它读取模型与上下文窗口信息。 */
   health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>

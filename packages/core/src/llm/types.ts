@@ -24,10 +24,10 @@ export type LLMMessage =
   | { role: "tool"; callID: string; content: Content[] }
 
 /**
- * 一次 provider turn 的完整请求。
+ * 一次 provider turn（模型调用轮次）的完整请求。
  *
  * 注意 `system` 是数组而不是字符串：第一段是 agent 自身的系统提示词，
- * 第二段是冻结的 baseline 系统上下文。分开保留是为了让日志能看清
+ * 第二段是冻结的 baseline（基线）系统上下文。分开保留是为了让日志能看清
  * 「请求前缀里哪一段来自哪里」，排查缓存问题时非常有用。
  */
 export interface LLMRequest {

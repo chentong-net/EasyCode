@@ -75,7 +75,7 @@ export interface Tool<Input = unknown> {
    *
    * 下面几个方法刻意用「方法签名」而不是「箭头函数属性」声明：
    * 方法参数在 TypeScript 中是双变检查的，这样 Tool<具体类型> 才能被
-   * 注册中心的 Tool<unknown>[] 接受。写成箭头函数属性会因为参数逆变
+   * 工具注册表的 Tool<unknown>[] 接受。写成箭头函数属性会因为参数逆变
    * 而无法赋值，导致必须到处写类型断言或 any。
    */
   resources(input: Input): string[]

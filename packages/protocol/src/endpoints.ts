@@ -15,9 +15,8 @@ export const API_PREFIX = "/api"
 /**
  * 接口契约版本。
  *
- * 桌面端与 sidecar 是分别构建的产物，一旦版本错配，症状往往是
- * 某个字段神秘地变成 undefined。健康检查返回它，能让这类问题
- * 在启动时就被发现，而不是等到用户点了按钮才报错。
+ * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
+ * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
 export const API_VERSION = "0.1.0"
 
@@ -38,7 +37,7 @@ const segment = (value: string): string => encodeURIComponent(value)
 export const sessionPath = (sessionID: string): string => `${API_PREFIX}/sessions/${segment(sessionID)}`
 
 export const Endpoints = {
-  /** 健康检查。桌面端主进程靠轮询它来判断 sidecar 是否就绪。 */
+  /** 健康检查。渲染层用它读取模型与上下文窗口信息；主进程通过就绪文件判断 sidecar 是否启动完成。 */
   health: (): string => `${API_PREFIX}/health`,
 
   /** 可用的 agent 列表 */

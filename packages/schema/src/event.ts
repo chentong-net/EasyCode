@@ -10,10 +10,10 @@ import { Usage } from "./usage.js"
 /**
  * 用户输入的投递方式。
  *
- * - `steer`：插话。在当前回合尚未结束时，于下一个安全的 provider turn 边界
- *   提升为可见消息，让模型立刻调整方向。
- * - `queue`：排队。在当前回合彻底结束、会话即将空闲时才提升，
- *   一次只提升一条，然后重新判断是否还需要继续。
+ * - `steer`：插话。在当前回合尚未结束时，于下一个安全的 provider turn（模型调用轮次）边界
+ *   转为可见消息，让模型立刻调整方向。
+ * - `queue`：排队。在当前回合彻底结束、会话即将空闲时才转为可见消息，
+ *   一次只转换一条，然后重新判断是否还需要继续。
  */
 export const Delivery = z.enum(["steer", "queue"])
 
@@ -75,9 +75,9 @@ const SessionTodos = z.object({
 })
 
 /**
- * 当前任务工作记忆的快照。
+ * 当前任务工作记忆的 snapshot（快照）。
  *
- * 任务状态不写进消息历史，避免被上下文压缩当作普通对话处理。Runner 每次
+ * 任务状态不写进消息历史，避免被 compaction（压缩）当作普通对话处理。Runner 每次
  * 推进阶段、记录修改或验证结果时追加该事件，历史重放可恢复同一份状态。
  */
 const TaskUpdated = z.object({
@@ -90,7 +90,7 @@ const TaskUpdated = z.object({
  * 输入入队。
  *
  * 这一步只是「持久化接纳」，用户消息还没有进入模型可见的历史。
- * 真正的提升由 InputPromoted 完成，两者分离是这套设计的关键：
+ * 真正的转换由 InputPromoted 事件完成，两者分离是这套设计的关键：
  * 即使进程在入队后立刻崩溃，用户输入也不会丢失。
  */
 const InputAdmitted = z.object({
@@ -101,7 +101,7 @@ const InputAdmitted = z.object({
   delivery: Delivery,
 })
 
-/** 输入提升：从待处理队列移出，成为模型可见的用户消息。 */
+/** 输入转为可见消息：从待处理队列移出，成为模型可见的用户消息。 */
 const InputPromoted = z.object({
   ...durableEnvelope,
   type: z.literal("input.promoted"),
@@ -158,7 +158,7 @@ const ToolCalled = z.object({
   input: z.unknown(),
 })
 
-/** 工具执行结束（成功或失败）。 */
+/** 工具调用结束并写入最终结果（成功或失败）。 */
 const ToolSettled = z.object({
   ...durableEnvelope,
   type: z.literal("tool.settled"),
@@ -195,13 +195,13 @@ const MessageEnded = z.object({
   error: z.string().optional(),
 })
 
-/** 压缩完成：旧历史被这条检查点消息替代。 */
+/** compaction（压缩）完成：旧历史被这条 checkpoint（检查点）消息替代。 */
 const CompactionEnded = z.object({
   ...durableEnvelope,
   type: z.literal("compaction.ended"),
   messageID: z.string(),
   text: z.string(),
-  /** 压缩时原样保留的最近消息 id，按原顺序排列 */
+  /** 执行 compaction 时原样保留的最近消息 id，按原顺序排列 */
   recentMessageIDs: z.array(z.string()),
   reason: z.enum(["automatic", "overflow", "manual", "fallback"]).optional(),
   beforeTokens: z.number().int().nonnegative().optional(),
@@ -213,8 +213,8 @@ const CompactionEnded = z.object({
 /**
  * 上下文更新：某个动态来源（例如日期）发生变化时追加的系统消息。
  *
- * 它与 ContextSnapshot 的推进必须原子发生，因此事件里带上新的快照由
- * 存储层在一次写入中完成。
+ * 当前实现先追加该事件，随后由 SystemContextManager 单独覆盖写入
+ * context.json。两步写入不是原子的，事件本身也不携带 context snapshot（快照）。
  */
 const ContextUpdated = z.object({
   ...durableEnvelope,
@@ -240,7 +240,7 @@ const PermissionReplied = z.object({
   type: z.literal("permission.replied"),
   requestID: z.string(),
   reply: PermissionReply,
-  /** 拒绝时用户给出的原因，会作为工具错误返回给模型 */
+  /** 拒绝时用户给出的原因；当前实现会结束当前回合，并保留在工具结果事件中 */
   feedback: z.string().optional(),
 })
 
@@ -259,7 +259,7 @@ const RunStarted = z.object({
   type: z.literal("run.started"),
 })
 
-/** 回合彻底空闲：所有工具结算完毕，也没有待处理的输入了。 */
+/** 回合彻底空闲：所有工具调用均已写入最终结果，也没有待处理的输入了。 */
 const RunIdle = z.object({
   ...durableEnvelope,
   type: z.literal("run.idle"),

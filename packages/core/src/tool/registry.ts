@@ -6,7 +6,7 @@ import { boundContent } from "./output.js"
 import { toModelDefinition, type Tool, type ToolContext } from "./tool.js"
 
 /**
- * 工具注册中心。
+ * 工具注册表。
  *
  * 它承担三件必须在所有工具上统一完成的事，任何一件漏掉都会出问题：
  *
@@ -32,7 +32,7 @@ export interface ToolSettlement {
 
 export interface SettleInput {
   call: ToolCall
-  /** 协议层解析入参 JSON 失败时的说明；存在则直接结算为失败，不执行工具 */
+  /** 协议层解析入参 JSON 失败时的说明；存在则直接生成失败结果，不执行工具 */
   parseError?: string
   sessionID: string
   /** 会话绑定的工作目录 */
@@ -51,7 +51,7 @@ export interface ToolRegistry {
   /** 转换为发给模型的工具定义 */
   definitions(): ToolDefinition[]
   has(name: string): boolean
-  /** 执行一次工具调用并结算 */
+  /** 执行一次工具调用并生成最终结果 */
   settle(input: SettleInput): Promise<ToolSettlement>
 }
 
@@ -132,7 +132,7 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
         ...result.metadata,
       }
 
-      logger.debug("工具执行成功", {
+      logger.debug("工具执行结束", {
         name,
         callID: input.call.callID,
         contentCount: bounded.files.length,

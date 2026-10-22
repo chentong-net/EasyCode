@@ -12,7 +12,7 @@ const logger = createLogger("env")
  *
  * 1. **已存在的环境变量优先**。真实环境变量 > .env 文件，这样启动脚本和测试
  *    可以临时覆盖配置，不会被 .env 里写死的值挡住。
- * 2. **支持注释、空行、引号、`export` 前缀**，这是 .env 事实上的通用语法。
+ * 2. **支持整行注释、空行、成对引号与 `export` 前缀**；当前不处理行尾注释。
  * 3. **文件不存在时静默通过**，只写一条 debug 日志。生产环境靠进程环境变量注入，
  *    没有 .env 是完全正常的。
  */
@@ -42,7 +42,7 @@ export const loadEnvFile = (filePath: string): void => {
   logger.info("已加载 .env 配置", { filePath, appliedCount: applied })
 }
 
-/** 解析一行配置；注释、空行、格式不正确的行都返回 undefined。 */
+/** 解析一行配置；整行注释、空行、格式不正确的行都返回 undefined。 */
 const parseLine = (rawLine: string): { key: string; value: string } | undefined => {
   const line = rawLine.trim()
   if (line.length === 0 || line.startsWith("#")) return undefined

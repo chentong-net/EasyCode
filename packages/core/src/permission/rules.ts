@@ -47,10 +47,10 @@ export interface PermissionDecision {
   rule?: PermissionRule
 }
 
-/** 效果的严格程度，数值越大越严格。用于多资源场景取最严格结果。 */
+/** 权限裁决的严格程度，数值越大越严格。用于多资源场景取最严格结果。 */
 const EFFECT_WEIGHT: Record<PermissionEffect, number> = { allow: 0, ask: 1, deny: 2 }
 
-/** 取两个效果中更严格的一个。 */
+/** 取两个权限裁决中更严格的一个。 */
 export const strictestEffect = (a: PermissionEffect, b: PermissionEffect): PermissionEffect =>
   EFFECT_WEIGHT[a] >= EFFECT_WEIGHT[b] ? a : b
 

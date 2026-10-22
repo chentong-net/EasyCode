@@ -8,7 +8,7 @@ import { createLogger } from "../log.js"
 
 const logger = createLogger("session.store")
 
-/** 把 Omit 分配到联合类型的每个成员上（普通 Omit 会把联合折叠掉）。 */
+/** 把 Omit 分配到联合类型的每个成员上（普通 Omit 会把联合合并掉）。 */
 export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
 
 /** 尚未分配序号的持久化事件。序号由运行时分配，因为只有它知道当前进度。 */
@@ -17,16 +17,16 @@ export type NewDurableEvent = DistributiveOmit<DurableEvent, "seq">
 /**
  * 会话级上下文状态。
  *
- * 覆盖写、不追加，与事件日志分开存放。原因是 baseline 必须能被 O(1) 读取：
+ * 覆盖写、不追加，与事件日志分开存放。原因是 baseline（基线）必须能被 O(1) 读取：
  * 如果把它塞进事件流，每次启动都要重放整个日志才能知道当前 baseline 是什么。
  *
- * `lastSeen` 记录「上一次真正送进 provider turn 的来源值」，用于判断某个上下文来源
- * 是否发生变化。它与回退功能无关——EasyCode 不做回退，也不需要文件快照。
+ * `lastSeen` 记录「上一次真正送进 provider turn（模型调用轮次）的来源值」，用于判断某个上下文来源
+ * 是否发生变化。它与回退功能无关——EasyCode 不做回退，也不需要文件 snapshot（快照）。
  */
 export interface PersistedContext {
-  /** 上下文纪元序号。每次压缩完成后加一，表示 baseline 被重新渲染 */
+  /** epoch（上下文周期）序号。每次 compaction（压缩）完成后加一，表示 baseline 被重新渲染 */
   epoch: number
-  /** 冻结的系统上下文原文。本 epoch 内逐字节复用，不再重新渲染 */
+  /** 冻结的系统上下文原文。同一个 epoch 内逐字节复用，不再重新渲染 */
   baseline: string
   /** 上次进入 provider turn 的各来源取值 */
   lastSeen: Record<string, unknown>
@@ -41,12 +41,12 @@ export interface PersistedContext {
  * ```
  * <dataDir>/sessions/<sessionID>/session.json   会话元信息（列表页用，派生自事件日志）
  * <dataDir>/sessions/<sessionID>/events.jsonl   持久化事件，仅追加
- * <dataDir>/sessions/<sessionID>/context.json   上下文纪元状态，覆盖写
+ * <dataDir>/sessions/<sessionID>/context.json   epoch（上下文周期）状态，覆盖写
  * <dataDir>/tool-output/tool_xxx.txt            超长工具输出的落盘文件
  * ```
  *
- * 事件日志是唯一的真相来源；session.json 是为了让「会话列表」不必扫描整个日志
- * 而维护的派生缓存，缺失或损坏时会话仍可正常打开（重新从日志推导）。
+ * 事件日志是单一事实来源；session.json 是为了让「会话列表」不必扫描整个日志
+ * 而维护的派生缓存。当前实现遇到缺失或损坏的缓存会跳过该会话，不会自动重建。
  */
 export interface SessionStore {
   readonly dataDir: string
@@ -63,7 +63,7 @@ export interface SessionStore {
 
   /** 追加一条事件到日志末尾。seq 由调用方分配。 */
   appendEvent(sessionID: string, seq: number, event: NewDurableEvent): Promise<DurableEvent>
-  /** 读取日志。afterSeq 省略时读取全部。启动时调用一次，之后由运行时在内存中维护。 */
+  /** 读取日志。afterSeq 省略时读取全部；首次加载与 SSE 补发都会调用。 */
   readEvents(sessionID: string, afterSeq?: number): Promise<DurableEvent[]>
 
   readContext(sessionID: string): Promise<PersistedContext | undefined>
@@ -183,14 +183,14 @@ export const createSessionStore = (config: CoreConfig): SessionStore => {
       if (typeof parsed !== "object" || parsed === null) return undefined
       const context = parsed as PersistedContext
       if (typeof context.baseline !== "string" || typeof context.epoch !== "number") {
-        logger.warn("context.json 结构不符合预期，将重新建立上下文纪元", { sessionID })
+        logger.warn("context.json 结构不符合预期，将重新建立 epoch（上下文周期）", { sessionID })
         return undefined
       }
       return context
     } catch (error) {
       if (isNotFound(error)) return undefined
       // 上下文文件损坏不会让会话不可用，只是需要重新渲染一次 baseline
-      logger.warn("读取 context.json 失败，将重新建立上下文纪元", { sessionID, error })
+      logger.warn("读取 context.json 失败，将重新建立 epoch（上下文周期）", { sessionID, error })
       return undefined
     }
   }

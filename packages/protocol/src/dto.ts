@@ -11,10 +11,10 @@ import { Delivery, Message, PermissionReply, PermissionRequest, Session } from "
  * 将来给领域对象加字段就会静默地把接口也改了。
  */
 
-/** 健康检查响应。桌面端主进程轮询它来判断 sidecar 是否已经可服务。 */
+/** 健康检查响应。渲染层用它读取模型与上下文预算，主进程通过就绪文件等待 sidecar。 */
 export const HealthResponse = z.object({
   ok: z.literal(true),
-  /** 运行时版本，取自 package.json */
+  /** 协议契约版本，当前来自 protocol 包中的 API_VERSION 常量 */
   version: z.string(),
   /** 当前固定使用的模型 id，用于界面展示 */
   model: z.string(),
@@ -28,8 +28,8 @@ export const HealthResponse = z.object({
   /**
    * 单轮回复的输出预留。
    *
-   * 界面用 `contextWindow - maxOutputTokens` 得出「可用额度」：
-   * 真正能拿来放历史的上限比窗口小，把窗口本身当成上限会让人误以为还有空间。
+   * 界面目前用 `contextWindow - maxOutputTokens` 估算「可用额度」。
+   * Runner 实际还会扣除 compaction（压缩）安全余量，因此界面额度会略偏乐观。
    */
   maxOutputTokens: z.number().int().positive(),
 })

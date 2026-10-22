@@ -4,10 +4,9 @@ import { join } from "node:path"
 /**
  * 主进程运行时用到的各个路径。
  *
- * 这些路径必须由主进程算好再传给 sidecar，不能让 sidecar 自己推断：
- * sidecar 的工作目录继承自主进程，而打包后主进程的工作目录可能是任意位置
- * （用户从 Finder 双击启动时甚至是根目录）。靠 cwd 推断是这一类「开发时正常、
- * 打包后读不到 .env」问题的根源。
+ * 这些路径必须由主进程算好再传给 sidecar，不能让 sidecar 自己推断。
+ * 打包后主进程的工作目录可能是任意位置（用户从 Finder 双击启动时甚至是根目录）；
+ * startSidecar 会显式把子进程 cwd 设置为配置文件所在目录。
  */
 
 export interface MainPaths {

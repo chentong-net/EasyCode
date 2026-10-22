@@ -49,7 +49,7 @@ export interface EasyCodeStore {
   running: boolean
   /** 待用户回应的授权请求 */
   pendingPermissions: PermissionRequest[]
-  /** 事件流是否连通。断开时底部状态栏会给出提示。 */
+  /** 当前记录的事件流连通状态；自动重连中的瞬时断开目前不会翻转此值。 */
   connected: boolean
   loading: boolean
   error: string | undefined
@@ -197,7 +197,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     const controller = new AbortController()
     let disposed = false
     let timer: ReturnType<typeof setTimeout> | undefined
-    /** 是否已有一次拉取在飞。有的话把新的请求折叠成「结束后再拉一次」。 */
+    /** 是否已有一次拉取在飞。有的话把新的请求合并为「结束后再拉一次」。 */
     let inFlight = false
     let again = false
     let runActive = false
@@ -320,8 +320,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
     void (async () => {
       try {
-        // 先订阅再拉取：订阅时会从头重放全部持久化事件，
-        // 因此不会漏掉「拉取」与「订阅」之间产生的事件
+        // async generator 在首次迭代时才建立 SSE 连接；这里先拉取投影，
+        // 后续连接会从头重放持久化事件，由事件处理补齐拉取期间的变化
         const stream = client.sessions.events(activeSessionID, { signal: controller.signal })
         await load()
         if (disposed) return

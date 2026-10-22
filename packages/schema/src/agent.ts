@@ -10,14 +10,14 @@ import { PermissionRule } from "./permission.js"
  * 不需要改运行时逻辑。
  */
 export const Agent = z.object({
-  /** agent 标识，同时作为权限规则里的 agent 名 */
+  /** agent 标识，用于解析会话绑定的 agent */
   id: z.string(),
   /** 一句话描述，展示在 UI 上 */
   description: z.string(),
-  /** 系统提示词。它会被拼在 baseline 之前，属于请求的最前缀部分 */
+  /** 系统提示词。它会被拼在 baseline（基线）之前，属于请求的最前缀部分 */
   system: z.string(),
   /**
-   * 单个回合内允许的最大 provider turn 数。
+   * 单个回合内允许的最大 provider turn（模型调用轮次）数。
    * 达到上限后会禁用工具并追加一条收尾提示，强制模型给出最终答复。
    */
   steps: z.number().int().positive(),

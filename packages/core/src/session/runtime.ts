@@ -270,5 +270,5 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
   }
 }
 
-/** 新会话的默认标题。首次输入提升时会被替换成输入内容的摘要。 */
+/** 新会话的默认标题。首次输入转为可见消息时会被替换成截断后的输入内容。 */
 export const DEFAULT_SESSION_TITLE = "新会话"

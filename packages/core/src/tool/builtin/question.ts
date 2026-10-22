@@ -27,7 +27,7 @@ export const questionTool = defineTool({
   name: "question",
   description: [
     "在执行过程中向用户提问，用于确认歧义、取舍或必要约束。",
-    "一次可以提出多个问题。用户会看到问题标题、正文和选项，也可以自由输入答案。",
+    "一次可以提出多个问题。问题标题、正文和选项会写入待输入工具结果，用户可在界面查看并自由输入答案。",
     "如果推荐某个选项，请把它放在第一项，并在 label 末尾标注“（推荐）”。",
   ].join("\n"),
   input: inputSchema,

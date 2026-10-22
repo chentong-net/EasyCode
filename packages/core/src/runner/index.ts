@@ -33,16 +33,16 @@ import type { ToolRegistry } from "../tool/registry.js"
  *
  * 1. **工具调用先落日志再执行**：`tool.called` 事件必须在真正执行之前写入，
  *    否则进程崩溃后无法判断某个副作用是否已经发生。
- * 2. **一次 provider turn 只调一次 `llm.stream`**：不在内存里做隐式的工具循环，
+ * 2. **每次 provider stream 尝试只调一次 `llm.stream`**：不在内存里做隐式的工具循环，
  *    每一轮都从事件日志重新读取历史。这样「进程重启后继续」和「正常运行」
  *    走的是同一条代码路径。
- * 3. **新用户输入只在 provider turn 之前提升**：用户随时可以插话，
+ * 3. **新用户输入只在 provider turn（模型调用轮次）之前转为可见消息**：用户随时可以插话，
  *    但插话内容只在一个安全边界（下一次调用模型之前）进入历史，
  *    不会把正在进行的这一轮请求撕成两半。
- * 4. **工具全部结算完才考虑续跑**：模型可能一次请求多个工具，
+ * 4. **工具结果全部写入后才考虑续跑**：模型可能一次请求多个工具，
  *    必须等它们都结束、结果都落盘之后，才发起下一轮请求。
  *
- * 外层是 drain（消费输入队列），内层是 turn（一次模型调用）。
+ * 外层是 drain（消费输入队列），内层是 turn（一次模型调用轮次）。
  */
 
 /** 一个会话的运行状态。由 runner 持有，不放进会话句柄，避免会话层反向依赖执行层。 */
@@ -158,7 +158,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       pendingInputs: handle.state.pendingInputs.size,
     })
 
-    // 首次进入时的提升方式：有插话就按插话提升，否则按排队提升
+    // 首次进入时的转换方式：有插话就转为可见消息，否则从排队输入中转换
     let promotion: Delivery | undefined = hasPendingInput(handle.state, "steer")
       ? "steer"
       : hasPendingInput(handle.state, "queue")
@@ -179,7 +179,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           needsContinuation = result.needsContinuation
           step = result.step + 1
 
-          // 一轮内的后续 provider turn 都按插话方式提升：
+          // 一轮内的后续 provider turn 都按插话方式转为可见消息：
           // 新输入会重置步数预算，因为它很可能改变了任务方向
           promotion = "steer"
           if (!needsContinuation) needsContinuation = hasPendingInput(handle.state, "steer")
@@ -187,7 +187,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
         if (controller.signal.aborted) break
 
-        // 排队输入只在会话即将空闲时提升一条，然后重新判断是否还要继续
+        // 排队输入只在会话即将空闲时转换一条，然后重新判断是否还要继续
         if (!hasPendingInput(handle.state, "queue")) break
         await finalizeTask(handle, false)
         promotion = "queue"
@@ -212,9 +212,9 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     controller: AbortController
     step: number
     promotion: Delivery | undefined
-    /** 是否已经因为压缩重建过请求，避免同一步里反复压缩 */
+    /** 是否已经因为 compaction（压缩）重建过请求，避免同一步里反复执行 */
     compactedOnce?: boolean
-    /** 当前转准备好发送后需要写入的压缩诊断 ID。 */
+    /** 当前 turn 准备好发送后需要写入的 compaction 诊断 ID。 */
     backupAfterID?: string
   }
 
@@ -228,13 +228,13 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const session = handle.state.session
     const signal = params.controller.signal
 
-    // 1. 提升输入。有输入被提升时重置步数预算。
+    // 1. 将待处理输入转为可见消息。有输入完成转换时重置步数预算。
     const promoted = await promoteInputs(handle, params.promotion)
     const step = promoted.count > 0 ? 1 : params.step
     await ensureTask(handle, promoted.texts, agent.steps)
     await updateTaskBudget(handle, step, agent.steps)
 
-    // 2. 系统上下文。首次进入会渲染并冻结 baseline，之后只做变化比对。
+    // 2. 系统上下文。首次进入会渲染并冻结 baseline（基线），之后只做变化比对。
     const systemContext = await deps.context.ensure(handle)
 
     // 3. 组装请求：历史 + 工具定义 + 系统提示词（agent 提示词在前，baseline 在后）
@@ -245,7 +245,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     if (isLastStep) system.push(MAX_STEPS_PROMPT)
     else if (step >= (handle.state.task?.budget.softSteps ?? agent.steps)) system.push(SOFT_STEPS_PROMPT)
 
-    // 4. 压缩检查。压缩过就重建请求（baseline 会换成新纪元的版本）。
+    // 4. compaction（压缩）检查。执行过后重建请求（baseline 会换成新 epoch 的版本）。
     if (params.compactedOnce !== true) {
       const compacted = await deps.compaction.compactIfNeeded({
         handle,
@@ -257,8 +257,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         signal,
       })
       if (compacted.status === "completed") {
-        // 压缩完成后开启新的上下文纪元：重渲染 baseline，
-        // 旧纪元的中途系统消息就此退出模型历史
+        // compaction 完成后开启新 epoch（上下文周期）：重渲染 baseline，
+        // 旧 epoch 的中途系统消息就此退出模型历史
         await deps.context.replace(handle)
         return runTurn({
           ...params,
@@ -294,7 +294,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   }
 
   /* ------------------------------------------------------------------------ */
-  /* 流式消费与工具结算                                                        */
+  /* 流式消费与工具调用完成                                                    */
   /* ------------------------------------------------------------------------ */
 
   interface StreamParams {
@@ -323,7 +323,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     parentSignal: AbortSignal
   }
 
-  /** 单次尝试的结果。overflow 为 true 表示上下文超限且还没产出内容，值得压缩后重试。 */
+  /** 单次尝试的结果。overflow 为 true 表示上下文超限且还没产出内容，值得执行 compaction 后重试。 */
   interface AttemptResult extends TurnResult {
     overflow: boolean
   }
@@ -332,8 +332,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
    * 流式消费一次模型响应。
    *
    * 外层包一层重试循环，专门处理「上下文超限」：provider 在助手消息还没产出
-   * 任何内容时就报超限，说明是历史太大而不是模型生成的问题，
-   * 此时压缩一次再试是安全且通常有效的。只重试一次，避免陷入循环。
+   * 任何内容时就报超限，说明是历史太大而不是模型生成的问题。
+   * 此时最多执行两次 compaction 重试，也就是最多三次 provider 请求尝试。
    */
   const streamTurn = async (params: StreamParams): Promise<TurnResult> => {
     const turn = createTurnController(params.parentSignal)
@@ -367,8 +367,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         })
 
         if (compacted.status !== "completed") {
-          logger.warn("上下文超限但压缩未能完成，本轮以失败结束", { sessionID: params.handle.id })
-          await blockTask(params.handle, `上下文压缩失败：${compacted.reason}`)
+          logger.warn("上下文超限但 compaction 未能完成，本轮以失败结束", { sessionID: params.handle.id })
+          await blockTask(params.handle, `上下文 compaction 失败：${compacted.reason}`)
           return result
         }
 
@@ -380,7 +380,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           messages: buildLLMMessages(params.handle.state, { baselineSeq: systemContext.baselineSeq }),
         }
         await deps.compaction.recordAfter(compacted.backupID, request)
-        logger.info("压缩完成，重试本次请求", { sessionID: params.handle.id })
+        logger.info("compaction 完成，重试本次请求", { sessionID: params.handle.id })
       }
     } finally {
       // 必须解绑：否则一个长回合的每一步都会在外层信号上留下一个监听器
@@ -403,7 +403,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       model: session.model,
     })
 
-    /** 当前正在累积的 part。模型的输出会在「文本」与「推理」之间来回切换，切换时结算上一段。 */
+    /** 当前正在累积的 part。模型的输出在「文本」与「推理」之间切换时，先结束并写入上一段。 */
     let currentPart: { kind: "text" | "reasoning"; index: number; buffer: string } | undefined
     let partIndex = 0
     const settlements: Array<Promise<void>> = []
@@ -425,7 +425,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       })
     }
 
-    /** 结算当前 part：把累积的文本作为权威值写入事件日志。 */
+    /** 结束当前 part：把累积的文本作为权威值写入事件日志。 */
     const flushPart = async (): Promise<void> => {
       const part = currentPart
       currentPart = undefined
@@ -591,7 +591,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
       const failure = normalizeFailure(error, signal)
 
-      // 助手还没产出任何内容就报超限：这是历史过大导致的，压缩后重试
+      // 助手还没产出任何内容就报超限：这是历史过大导致的，执行 compaction 后重试
       if (failure instanceof LLMError && failure.kind === "context_overflow" && !produced) {
         await handle.append({
           type: "message.ended",
@@ -601,7 +601,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           finish: "compacted",
           ...(usage ? { usage } : {}),
         })
-        logger.info("provider 报告上下文超限，准备压缩后重试", { sessionID: session.id })
+        logger.info("provider 报告上下文超限，准备执行 compaction 后重试", { sessionID: session.id })
         return { needsContinuation: false, step: params.step, overflow: true }
       }
 
@@ -617,11 +617,11 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     await flushPart()
 
-    // 等所有工具结算完成。模型可能一次请求多个工具，必须全部结束才能继续。
+    // 等所有工具调用写入最终结果。模型可能一次请求多个工具，必须全部结束才能继续。
     const settled = await Promise.allSettled(settlements)
     for (const outcome of settled) {
       if (outcome.status === "rejected") {
-        logger.error("工具结算任务异常", { sessionID: session.id, error: describeError(outcome.reason) })
+        logger.error("工具调用完成任务异常", { sessionID: session.id, error: describeError(outcome.reason) })
       }
     }
 
@@ -793,7 +793,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         return
       }
 
-      logger.error("工具结算过程抛出异常", { sessionID: session.id, callID: params.callID, error })
+      logger.error("工具调用完成过程抛出异常", { sessionID: session.id, callID: params.callID, error })
       await appendToolSettlement(handle, session.id, {
         callID: params.callID,
         status: "error",
@@ -880,7 +880,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     await appendTask(handle, next)
   }
 
-  /** 把工具结算结果写入事件日志。 */
+  /** 把工具调用最终结果写入事件日志。 */
   const appendToolSettlement = async (
     handle: SessionHandle,
     sessionID: string,
@@ -915,7 +915,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   /**
    * 给仍然处于 pending 的工具调用补一条失败结果。
    *
-   * 走到这里说明有工具的结算任务没有把自己写进日志（例如进程被强杀之后重启）。
+   * 走到这里说明有工具的完成任务没有把自己写进日志。
    * 不补的话，下一次请求里就会出现「有 tool_call 但没有对应 tool 消息」的非法历史。
    */
   const settlePendingTools = async (handle: SessionHandle, sessionID: string, messageID: string): Promise<void> => {
@@ -934,14 +934,14 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   }
 
   /* ------------------------------------------------------------------------ */
-  /* 输入提升                                                                  */
+  /* 输入转为可见消息                                                          */
   /* ------------------------------------------------------------------------ */
 
   /**
-   * 把待处理输入提升为模型可见的用户消息。
+   * 把待处理输入转为模型可见的用户消息。
    *
-   * `steer` 提升全部插话；`queue` 只提升一条排队输入，同时把插话一并提升。
-   * 返回提升的条数，调用方据此决定是否重置步数预算。
+   * `steer` 转换全部插话；`queue` 只转换一条排队输入，同时转换全部插话。
+   * 返回转换的条数，调用方据此决定是否重置步数预算。
    */
   const promoteInputs = async (
     handle: SessionHandle,
@@ -974,7 +974,9 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       await updateTitleFromFirstInput(handle, item.text)
     }
 
-    if (texts.length > 0) logger.info("已提升用户输入", { sessionID: handle.id, count: texts.length, delivery })
+    if (texts.length > 0) {
+      logger.info("已将用户输入转为可见消息", { sessionID: handle.id, count: texts.length, delivery })
+    }
     return { count: texts.length, texts }
   }
 

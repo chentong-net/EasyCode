@@ -5,6 +5,8 @@ import { z } from "zod"
  *
  * 语义说明：`input` 是「未命中缓存、按完整价格计费」的输入 token，
  * 与 `cacheRead` / `cacheWrite` 互不重叠，三者相加才是输入总量。
+ * `output` 是模型生成的总量，按当前 OpenAI 兼容协议映射约定包含 `reasoning`；
+ * 计算总输出时不能再次加上 `reasoning`。
  * 这样设计可以避免下游做减法时出现负数（各家 provider 的 usage 字段语义不一致）。
  */
 export const Usage = z.object({

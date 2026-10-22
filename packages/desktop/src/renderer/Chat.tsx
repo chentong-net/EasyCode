@@ -92,8 +92,8 @@ const StatusBar = ({ store, contextUsage }: { store: EasyCodeStore; contextUsage
   const statusLine = !store.connected
     ? "与服务端的连接已断开，正在自动重连…"
     : view.ratio !== undefined
-      ? "自动压缩已就绪"
-      : `自动压缩已就绪：窗口 ${windowLabel}，发第一条消息后这里显示占用`
+      ? "自动 compaction（压缩）已就绪"
+      : `自动 compaction（压缩）已就绪：窗口 ${windowLabel}，发第一条消息后这里显示占用`
 
   return (
     <div className="status-bar">
