@@ -212,7 +212,10 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       input.previousSummary === undefined
         ? undefined
         : truncateToTokenBudget(input.previousSummary, Math.floor(available * 0.25))
-    const taskMemory = taskMemorySummary(input.handle.state.task)
+    const taskMemory = truncateToTokenBudget(
+      taskMemorySummary(input.handle.state.task),
+      Math.max(128, Math.floor(available * 0.2)),
+    )
     const prompt = buildSummaryPrompt(transcript, previousSummary, taskMemory)
     let attempts = 0
 
