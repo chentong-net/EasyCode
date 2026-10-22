@@ -340,6 +340,31 @@ pre {
   word-break: break-word;
 }
 
+.message-file {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.message-error {
+  color: var(--danger);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.message-running {
+  display: flex;
+  align-items: center;
+  height: 18px;
+}
+
+.message-running span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 /* 消息操作：平时很淡，鼠标移上去才明显，避免干扰正文阅读 */
 .message-actions {
   display: flex;
@@ -698,6 +723,12 @@ pre {
   justify-content: space-between;
 }
 
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .composer-plus {
   display: flex;
   align-items: center;
@@ -741,6 +772,14 @@ pre {
 
 .composer-send:hover:not(:disabled) {
   background: #000000;
+}
+
+.composer-stop {
+  background: var(--danger);
+}
+
+.composer-stop:hover:not(:disabled) {
+  background: #b42318;
 }
 
 .composer-send:disabled {
