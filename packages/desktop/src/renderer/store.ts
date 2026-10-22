@@ -7,7 +7,7 @@ import {
   type PermissionRequest,
   type Session,
 } from "@easycode/schema"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { describeError } from "./format"
 
@@ -80,6 +80,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [error, setError] = useState<string | undefined>()
   /** 自增即可触发会话列表重新拉取，比在每次变更处手写更新逻辑更不容易漏 */
   const [sessionListToken, setSessionListToken] = useState(0)
+  const loadedWorkspace = useRef<string | undefined>(undefined)
+  const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
 
@@ -99,6 +101,21 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const activeSessionID = useMemo(
     () => (scopedSessions.some((session) => session.id === currentSessionID) ? currentSessionID : undefined),
     [scopedSessions, currentSessionID],
+  )
+
+  const refreshSessionListSoon = useCallback(() => {
+    if (listRefreshTimer.current !== undefined) clearTimeout(listRefreshTimer.current)
+    listRefreshTimer.current = setTimeout(() => {
+      listRefreshTimer.current = undefined
+      setSessionListToken((token) => token + 1)
+    }, 150)
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (listRefreshTimer.current !== undefined) clearTimeout(listRefreshTimer.current)
+    },
+    [],
   )
 
   /* ---------------------------------------------------------------------- */
@@ -131,11 +148,13 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       // 还没选工作目录：没有会话可列，也不该去请求
       setSessions([])
       setLoading(false)
+      loadedWorkspace.current = undefined
       return
     }
 
     const controller = new AbortController()
-    setLoading(true)
+    const initialLoad = loadedWorkspace.current !== workspace
+    if (initialLoad) setLoading(true)
 
     void (async () => {
       try {
@@ -144,6 +163,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
         const scoped = list.filter((session) => session.directory === workspace)
         setSessions(list)
+        loadedWorkspace.current = workspace
         setLoading(false)
         // 切换到别的目录后，原来选中的会话已经不在这批里，改为打开该目录下最近的一个；
         // 只是同目录内刷新（例如标题变了）则保留用户当前的选择
@@ -153,7 +173,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       } catch (cause) {
         if (controller.signal.aborted) return
         setError(describeError(cause))
-        setLoading(false)
+        if (initialLoad) setLoading(false)
       }
     })()
 
@@ -180,6 +200,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     /** 是否已有一次拉取在飞。有的话把新的请求折叠成「结束后再拉一次」。 */
     let inFlight = false
     let again = false
+    let runActive = false
+    let listDirty = false
 
     // 切换会话时先清空派生状态。事件的完整重放会把它们重新填对，
     // 不清的话会短暂显示上一个会话的运行状态与审批卡片
@@ -262,14 +284,20 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
       switch (event.type) {
         case "run.started":
+          runActive = true
           setRunning(true)
           return
 
         case "run.idle":
           // 回合彻底结束：丢掉流式缓冲，并立刻同步一次最终结果
+          runActive = false
           setRunning(false)
           setDeltas(undefined)
           loadNow()
+          if (listDirty) {
+            listDirty = false
+            refreshSessionListSoon()
+          }
           return
 
         case "permission.asked":
@@ -280,7 +308,8 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
         case "session.updated":
         case "session.todos":
-          setSessionListToken((token) => token + 1)
+          if (runActive) listDirty = true
+          else refreshSessionListSoon()
           scheduleLoad()
           return
 
@@ -314,7 +343,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       controller.abort()
       if (timer !== undefined) clearTimeout(timer)
     }
-  }, [client, activeSessionID])
+  }, [client, activeSessionID, refreshSessionListSoon])
 
   /* ---------------------------------------------------------------------- */
   /* 对外动作                                                                */
