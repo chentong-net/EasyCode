@@ -161,6 +161,12 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       buildFallbackSummary(input.handle.state.task, subject, tail, options.summaryOutputTokens)
     const usedFallback = summarized === undefined
     const attempts = summarized?.attempts ?? 1
+    if (usedFallback) {
+      logger.warn("模型摘要不可用，使用任务账本生成确定性检查点", {
+        sessionID: input.handle.id,
+        summarizedMessages: subject.length,
+      })
+    }
 
     await input.handle.append({
       type: "compaction.ended",
@@ -182,8 +188,20 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       sessionID: input.handle.id,
       summarizedMessages: subject.length,
       keptMessages: tail.length,
+      keptTokens: estimateMessagesTokens(tail),
       summaryChars: summary.length,
+      beforeTokens,
+      afterTokens,
+      triggerTokens: options.triggerTokens,
+      hardInputTokens: options.hardInputTokens,
     })
+    if (afterTokens > options.triggerTokens) {
+      logger.warn("压缩后仍高于软阈值，下一轮将继续收缩", {
+        sessionID: input.handle.id,
+        afterTokens,
+        triggerTokens: options.triggerTokens,
+      })
+    }
     return {
       status: "completed",
       reason: usedFallback
@@ -480,6 +498,8 @@ const buildFallbackSummary = (
  * 压缩后模型会完全失去最近发生的事情。
  */
 const splitHistory = (history: Message[], keepTokens: number): { head: Message[]; tail: Message[] } => {
+  if (history.length === 0) return { head: [], tail: [] }
+
   let accumulated = 0
   let splitIndex = history.length
 
@@ -493,28 +513,27 @@ const splitHistory = (history: Message[], keepTokens: number): { head: Message[]
     splitIndex = index
   }
 
-  // 从用户消息开始保留一个完整交换，避免把问题和回复拆到摘要与原文两侧。
+  // 尽可能从用户消息开始保留交换，但只有仍在预算内时才这样做。Coding Agent
+  // 的一个用户请求可能包含几十个工具回合，不能因此让整个任务都变成保留区。
   if (splitIndex > 0 && splitIndex < history.length) {
     for (let index = splitIndex; index >= 0; index -= 1) {
       if (history[index]?.role === "user") {
-        splitIndex = index
+        if (estimateMessagesTokens(history.slice(index)) <= keepTokens) splitIndex = index
         break
       }
     }
   }
 
-  // 最后一条消息本身超过保留预算时，仍保留最近的完整交换，避免模型失去当前问题。
-  if (splitIndex >= history.length) {
-    for (let index = history.length - 1; index >= 0; index -= 1) {
-      if (history[index]?.role === "user") {
-        splitIndex = index
-        break
-      }
-    }
-  }
+  // 至少保留最后一条消息，同时确保还有可摘要的历史。单个超长交换必须在
+  // 助手消息边界内切分；原始用户目标由独立任务账本继续携带。
+  splitIndex = Math.min(splitIndex, history.length - 1)
+  if (splitIndex === 0 && history.length > 1) splitIndex = 1
 
   return { head: history.slice(0, splitIndex), tail: history.slice(splitIndex) }
 }
+
+const estimateMessagesTokens = (messages: Message[]): number =>
+  messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
 
 /** 估算单条消息的体积，用于决定压缩边界。 */
 const estimateMessageTokens = (message: Message): number => {
