@@ -254,6 +254,10 @@ export const createStreamDecoder = (): StreamDecoder => {
   const pending = new Map<number, PendingToolCall>()
   let finished = false
   let lastFinishReason = ""
+  let textCarry = ""
+  let dsmlBuffer = ""
+  let inDsml = false
+  let dsmlCallsDetected = false
 
   const flushToolCalls = (): LLMEvent[] => {
     const events = [...pending.entries()]
@@ -263,10 +267,89 @@ export const createStreamDecoder = (): StreamDecoder => {
     return events
   }
 
+  const completeDsml = (): { events: LLMEvent[]; hasCalls: boolean } => {
+    const block = dsmlBuffer
+    dsmlBuffer = ""
+    inDsml = false
+    const calls = parseDsmlToolCalls(block)
+    const hasCalls = calls.some((event) => event.type === "tool.call")
+    if (hasCalls) dsmlCallsDetected = true
+    return {
+      events: hasCalls ? calls : block.length > 0 ? [{ type: "text.delta", text: block }] : [],
+      hasCalls,
+    }
+  }
+
+  const handleContent = (content: string): LLMEvent[] => {
+    if (inDsml) {
+      dsmlBuffer += content
+      const closing = findDsmlClosing(dsmlBuffer)
+      if (!closing) return []
+
+      const block = dsmlBuffer.slice(0, closing.end)
+      const rest = dsmlBuffer.slice(closing.end)
+      dsmlBuffer = block
+      const completed = completeDsml()
+      return [...completed.events, ...(rest.length > 0 ? handleContent(rest) : [])]
+    }
+
+    const combined = `${textCarry}${content}`
+    textCarry = ""
+    const opening = findDsmlOpening(combined)
+    if (opening !== undefined) {
+      const events: LLMEvent[] = []
+      if (opening.index > 0) events.push({ type: "text.delta", text: combined.slice(0, opening.index) })
+      dsmlBuffer = combined.slice(opening.index)
+      inDsml = true
+      const closing = findDsmlClosing(dsmlBuffer)
+      if (!closing) return events
+
+      const block = dsmlBuffer.slice(0, closing.end)
+      const rest = dsmlBuffer.slice(closing.end)
+      dsmlBuffer = block
+      const completed = completeDsml()
+      return [...events, ...completed.events, ...(rest.length > 0 ? handleContent(rest) : [])]
+    }
+
+    const held = partialDsmlSuffix(combined)
+    textCarry = held
+    const text = held.length > 0 ? combined.slice(0, -held.length) : combined
+    return text.length > 0 ? [{ type: "text.delta", text }] : []
+  }
+
+  const flushContent = (): { events: LLMEvent[]; hasCalls: boolean } => {
+    const events: LLMEvent[] = []
+    let hasCalls = false
+    if (inDsml) {
+      const completed = completeDsml()
+      events.push(...completed.events)
+      hasCalls = completed.hasCalls
+    }
+    if (textCarry.length > 0) {
+      events.push({ type: "text.delta", text: textCarry })
+      textCarry = ""
+    }
+    return { events, hasCalls }
+  }
+
+  const finish = (reason: string): LLMEvent[] => {
+    const content = flushContent()
+    const standardCalls = flushToolCalls()
+    const hasCalls =
+      dsmlCallsDetected ||
+      content.hasCalls ||
+      standardCalls.some((event) => event.type === "tool.call")
+    return [
+      ...content.events,
+      ...standardCalls,
+      { type: "finish", reason: hasCalls && reason === "stop" ? "tool_calls" : reason },
+    ]
+  }
+
   const push = (payload: string): DecoderResult => {
     if (payload.trim() === "[DONE]") {
       // 极少数实现不发 finish_reason 直接结束，这里补一个，保证消费方总能拿到收尾信号
-      const events = finished ? [] : [...flushToolCalls(), { type: "finish" as const, reason: lastFinishReason || "stop" }]
+      const events = finished ? [] : finish(lastFinishReason || "stop")
       finished = true
       return { events, done: true }
     }
@@ -296,7 +379,7 @@ export const createStreamDecoder = (): StreamDecoder => {
       }
 
       if (typeof delta?.content === "string" && delta.content.length > 0) {
-        events.push({ type: "text.delta", text: delta.content })
+        events.push(...handleContent(delta.content))
       }
 
       for (const fragment of delta?.tool_calls ?? []) {
@@ -322,8 +405,7 @@ export const createStreamDecoder = (): StreamDecoder => {
 
       if (choice.finish_reason) {
         lastFinishReason = choice.finish_reason
-        events.push(...flushToolCalls())
-        events.push({ type: "finish", reason: choice.finish_reason })
+        events.push(...finish(choice.finish_reason))
         finished = true
       }
     }
@@ -335,11 +417,114 @@ export const createStreamDecoder = (): StreamDecoder => {
   const finalize = (): LLMEvent[] => {
     if (finished) return []
     finished = true
-    return [...flushToolCalls(), { type: "finish", reason: "stop" }]
+    return finish("stop")
   }
 
   return { push, finalize }
 }
+
+const DSML_OPENINGS = ["<｜｜DSML｜｜", "<||DSML||"]
+const DSML_CLOSINGS = ["</｜｜DSML｜｜ calls>", "</||DSML|| calls>", "</｜｜DSML｜｜>", "</||DSML||>"]
+
+const findDsmlOpening = (text: string): { index: number; marker: string } | undefined => {
+  let found: { index: number; marker: string } | undefined
+  for (const marker of DSML_OPENINGS) {
+    const index = text.indexOf(marker)
+    if (index === -1) continue
+    if (found === undefined || index < found.index) found = { index, marker }
+  }
+  return found
+}
+
+const findDsmlClosing = (text: string): { index: number; end: number } | undefined => {
+  let found: { index: number; end: number } | undefined
+  for (const marker of DSML_CLOSINGS) {
+    const index = text.indexOf(marker)
+    if (index === -1) continue
+    const candidate = { index, end: index + marker.length }
+    if (found === undefined || candidate.index < found.index) found = candidate
+  }
+  return found
+}
+
+const partialDsmlSuffix = (text: string): string => {
+  let held = ""
+  for (const marker of DSML_OPENINGS) {
+    const maximum = Math.min(marker.length - 1, text.length)
+    for (let length = maximum; length > held.length; length -= 1) {
+      if (marker.startsWith(text.slice(-length))) {
+        held = text.slice(-length)
+        break
+      }
+    }
+  }
+  return held
+}
+
+/** 把部分兼容模型写在正文里的 DSML invoke 块转换成标准工具调用事件。 */
+export const parseDsmlToolCalls = (text: string): LLMEvent[] => {
+  if (!findDsmlOpening(text)) return []
+  const normalized = text.replaceAll("｜", "|")
+  const tag = "\\|\\|DSML\\|\\|"
+  const invokePattern = new RegExp(
+    `<${tag}\\s+invoke\\s+name="([^"]+)">([\\s\\S]*?)<\\/${tag}\\s+invoke>`,
+    "gi",
+  )
+  const parameterPattern = new RegExp(
+    `<${tag}\\s+parameter\\s+name="([^"]+)"(?:\\s+string="(true|false)")?\\s*>([\\s\\S]*?)<\\/${tag}\\s+parameter>`,
+    "gi",
+  )
+  const events: LLMEvent[] = []
+
+  for (const invoke of normalized.matchAll(invokePattern)) {
+    const name = decodeXml(invoke[1] ?? "")
+    if (name.length === 0) continue
+    const input: Record<string, unknown> = {}
+    for (const parameter of (invoke[2] ?? "").matchAll(parameterPattern)) {
+      const key = decodeXml(parameter[1] ?? "")
+      if (key.length === 0) continue
+      const raw = decodeXml(parameter[3] ?? "").trim()
+      input[key] = parameter[2] === "true" ? raw : parseDsmlValue(raw)
+    }
+    events.push({
+      type: "tool.call",
+      callID: newToolCallID(),
+      name,
+      input,
+    })
+  }
+
+  return events
+}
+
+const parseDsmlValue = (value: string): unknown => {
+  if (value.length === 0) return ""
+  try {
+    return JSON.parse(value) as unknown
+  } catch {
+    return value
+  }
+}
+
+const decodeXml = (value: string): string =>
+  value.replace(/&(?:#(\d+)|#x([0-9a-f]+)|lt|gt|amp|quot|apos);/gi, (entity, decimal, hex) => {
+    if (decimal !== undefined) return String.fromCodePoint(Number(decimal))
+    if (hex !== undefined) return String.fromCodePoint(Number.parseInt(hex, 16))
+    switch (entity.toLowerCase()) {
+      case "&lt;":
+        return "<"
+      case "&gt;":
+        return ">"
+      case "&amp;":
+        return "&"
+      case "&quot;":
+        return '"'
+      case "&apos;":
+        return "'"
+      default:
+        return entity
+    }
+  })
 
 /** 把累积完成的工具调用转成事件，并尝试解析入参 JSON。 */
 const toToolCallEvent = (call: PendingToolCall): LLMEvent => {
