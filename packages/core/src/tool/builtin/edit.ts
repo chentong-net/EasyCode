@@ -1,7 +1,8 @@
-import { readFile, stat, writeFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { z } from "zod"
 
 import { ToolFailure } from "../../errors.js"
+import { writeFileAtomic } from "../../util/atomic.js"
 import { ensureWithinWorkspace, resolveToolPath } from "../paths.js"
 import { defineTool } from "../tool.js"
 
@@ -95,7 +96,7 @@ export const editTool = defineTool({
       })
     }
 
-    await writeFile(target.absolute, updated, "utf8")
+    await writeFileAtomic(target.absolute, updated)
 
     const change = summarizeChange(original, updated)
     context.logger.info("已修改文件", {

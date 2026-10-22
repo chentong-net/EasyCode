@@ -1,7 +1,8 @@
-import { mkdir, stat, writeFile } from "node:fs/promises"
+import { mkdir, stat } from "node:fs/promises"
 import { dirname } from "node:path"
 import { z } from "zod"
 
+import { writeFileAtomic } from "../../util/atomic.js"
 import { ensureWithinWorkspace, resolveToolPath } from "../paths.js"
 import { defineTool } from "../tool.js"
 import { formatBytes } from "./read.js"
@@ -40,7 +41,7 @@ export const writeTool = defineTool({
 
     const existed = await fileExists(target.absolute)
     await mkdir(dirname(target.absolute), { recursive: true })
-    await writeFile(target.absolute, input.content, "utf8")
+    await writeFileAtomic(target.absolute, input.content)
 
     const bytes = Buffer.byteLength(input.content, "utf8")
     const lines = input.content.split("\n").length
