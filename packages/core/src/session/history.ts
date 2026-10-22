@@ -4,6 +4,7 @@ import type { LLMMessage } from "../llm/types.js"
 import { createLogger } from "../log.js"
 import { estimateTextTokens, MESSAGE_OVERHEAD_TOKENS, TOOL_OVERHEAD_TOKENS } from "../util/token.js"
 import type { ProjectedState } from "./projector.js"
+import { renderTaskState } from "./task.js"
 
 const logger = createLogger("session.history")
 
@@ -79,6 +80,9 @@ export const buildLLMMessages = (state: ProjectedState, options: HistoryOptions)
       }
     }
   }
+
+  // 任务记忆放在动态历史尾部：它每次可能变化，但不会破坏系统提示词前缀缓存。
+  if (state.task) result.push({ role: "system", text: renderTaskState(state.task) })
 
   return result
 }
