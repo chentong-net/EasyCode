@@ -2,7 +2,7 @@ import type { Message, Part, TaskState, ToolDefinition } from "@easycode/schema"
 import { addUsage } from "@easycode/schema"
 
 import type { CoreConfig } from "../config.js"
-import { describeError } from "../llm/error.js"
+import { describeError, LLMError } from "../llm/error.js"
 import type { LLMClient, LLMMessage } from "../llm/types.js"
 import { newMessageID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
@@ -211,29 +211,55 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       options.summaryInputTokens - estimateTextTokens(SUMMARY_SYSTEM_PROMPT) - 64
     let attempts = 0
 
-    const run = async (userPrompt: string): Promise<{ text: string; finish: string } | undefined> => {
+    const run = async (
+      userPrompt: string,
+    ): Promise<{ text: string; finish: string; attempts: number } | undefined> => {
       let text = ""
       let finish = ""
       let usage = undefined as Parameters<typeof addUsage>[0] | undefined
+      let attemptsUsed = 0
 
-      try {
-        for await (const event of deps.llm.stream({
-          model: input.handle.state.session.model,
-          system: [SUMMARY_SYSTEM_PROMPT],
-          messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-          // 摘要请求不带工具：避免模型在总结时又去调用工具
-          tools: [],
-          maxOutputTokens: options.summaryOutputTokens,
-          sessionID: input.handle.id,
-          ...(input.signal ? { signal: input.signal } : {}),
-        })) {
-          if (event.type === "text.delta") text += event.text
-          if (event.type === "usage") usage = event.usage
-          if (event.type === "finish") finish = event.reason
+      for (let callAttempt = 1; callAttempt <= 2; callAttempt += 1) {
+        attemptsUsed = callAttempt
+        text = ""
+        finish = ""
+        try {
+          for await (const event of deps.llm.stream({
+            model: input.handle.state.session.model,
+            system: [SUMMARY_SYSTEM_PROMPT],
+            messages: [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
+            // 摘要请求不带工具：避免模型在总结时又去调用工具
+            tools: [],
+            maxOutputTokens: options.summaryOutputTokens,
+            sessionID: input.handle.id,
+            ...(input.signal ? { signal: input.signal } : {}),
+          })) {
+            if (event.type === "text.delta") text += event.text
+            if (event.type === "usage") usage = event.usage
+            if (event.type === "finish") finish = event.reason
+          }
+          break
+        } catch (error) {
+          if (
+            callAttempt === 1 &&
+            error instanceof LLMError &&
+            error.retryable &&
+            input.signal?.aborted !== true
+          ) {
+            logger.warn("摘要请求暂时失败，准备重试", {
+              sessionID: input.handle.id,
+              kind: error.kind,
+            })
+            try {
+              await delay(500, input.signal)
+            } catch {
+              return undefined
+            }
+            continue
+          }
+          logger.warn("摘要请求失败，本次不压缩", { sessionID: input.handle.id, error: describeError(error) })
+          return undefined
         }
-      } catch (error) {
-        logger.warn("摘要请求失败，本次不压缩", { sessionID: input.handle.id, error: describeError(error) })
-        return undefined
       }
 
       if (usage) {
@@ -245,17 +271,17 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
           usage: addUsage(input.handle.state.session.usage, usage),
         })
       }
-      return { text: text.trim(), finish }
+      return { text: text.trim(), finish, attempts: attemptsUsed }
     }
 
     const valid = async (userPrompt: string): Promise<string | undefined> => {
       const first = await run(userPrompt)
-      attempts += 1
+      attempts += first?.attempts ?? 1
       if (!first || first.finish === "length" || first.text.length === 0) return undefined
       if (hasSummaryTemplate(first.text)) return first.text
 
       const corrected = await run(`${userPrompt}\n\n${SUMMARY_NUDGE}`)
-      attempts += 1
+      attempts += corrected?.attempts ?? 1
       if (!corrected || corrected.finish === "length" || corrected.text.length === 0) return undefined
       return hasSummaryTemplate(corrected.text) ? corrected.text : undefined
     }
@@ -360,6 +386,23 @@ const truncateToTokenBudget = (text: string, budget: number): string => {
   const ratio = Math.max(0.05, budget / Math.max(estimated, 1))
   return truncate(text, Math.max(200, Math.floor(text.length * ratio)))
 }
+
+const delay = (ms: number, signal: AbortSignal | undefined): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("已取消"))
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error("已取消"))
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
 
 /**
  * 模型摘要不可用时仍生成可继续工作的检查点。它可能损失过程细节，但会保留
