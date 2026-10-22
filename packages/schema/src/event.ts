@@ -203,6 +203,11 @@ const CompactionEnded = z.object({
   text: z.string(),
   /** 压缩时原样保留的最近消息 id，按原顺序排列 */
   recentMessageIDs: z.array(z.string()),
+  reason: z.enum(["automatic", "overflow", "manual", "fallback"]).optional(),
+  beforeTokens: z.number().int().nonnegative().optional(),
+  afterTokens: z.number().int().nonnegative().optional(),
+  attempts: z.number().int().positive().optional(),
+  usedFallback: z.boolean().optional(),
 })
 
 /**
