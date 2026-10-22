@@ -55,6 +55,7 @@ export const bashTool = defineTool({
     "读取文件请用 read，检索内容请用 grep/glob，不要用 cat 或 find。",
   ].join("\n"),
   input: inputSchema,
+  effect: "command",
   resources: (input) => [input.command],
   // 记住「总是允许这条命令」是合理的：用户批准了一条命令，
   // 通常意味着同类命令也可以接受。注意这里记的是完整命令字符串。
@@ -141,7 +142,7 @@ export const bashTool = defineTool({
     clearTimeout(timeoutTimer)
     context.signal.removeEventListener("abort", onAbort)
 
-    if (aborted) throw new ToolFailure("命令已被中断")
+    if (aborted) throw new ToolFailure("命令已被中断", { kind: "aborted" })
 
     context.logger.info("命令执行结束", {
       command: input.command,
@@ -167,7 +168,21 @@ export const bashTool = defineTool({
     if (stdout.trim().length === 0 && stderr.trim().length === 0) sections.push("（命令没有产生任何输出）")
     if (captureTruncated) sections.push(`（输出超过 ${formatBytes(MAX_CAPTURE_BYTES)}，已截断）`)
 
+    const failed = outcome.error !== undefined || timedOut || outcome.code !== 0
+    const failureKind = outcome.error ? "internal" : timedOut ? "timeout" : "command_failed"
+    const verification = inferVerification(input.command, failed)
+
     return {
+      ...(failed
+        ? {
+            status: "error" as const,
+            error: outcome.error
+              ? `命令启动失败：${outcome.error.message}`
+              : timedOut
+                ? `命令超时（超过 ${timeoutMs}ms）`
+                : `命令退出码为 ${outcome.code ?? "未知"}`,
+          }
+        : {}),
       output: {
         command: input.command,
         exitCode: outcome.code,
@@ -177,8 +192,25 @@ export const bashTool = defineTool({
         stderr,
       },
       content: [{ type: "text", text: sections.join("\n") }],
+      metadata: {
+        effect: "command",
+        ...(failed ? { failureKind } : {}),
+        ...(verification ? { verification } : {}),
+      },
     }
   },
 })
+
+const VERIFICATION_COMMAND =
+  /(^|\s)(npm|pnpm|yarn|bun)\s+(run\s+)?(test|typecheck|build|lint|check)(\s|$)|(^|\s)(vitest|jest|pytest|tsc|go\s+test|cargo\s+test|swift\s+test)(\s|$)/i
+
+const inferVerification = (command: string, failed: boolean) =>
+  VERIFICATION_COMMAND.test(command)
+    ? {
+        status: failed ? ("failed" as const) : ("passed" as const),
+        command,
+        summary: failed ? "验证命令执行失败" : "验证命令执行成功",
+      }
+    : undefined
 
 export type { Input }
