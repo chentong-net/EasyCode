@@ -2,7 +2,7 @@
   "name": "@easycode/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "EasyCode 桌面端：Electron 外壳、本地 sidecar 与 assistant-ui 渲染层",
+  "description": "EasyCode 桌面端：Electron 外壳、本地 sidecar 与 React 渲染层",
   "type": "module",
   "main": "dist/main/index.cjs",
   "scripts": {

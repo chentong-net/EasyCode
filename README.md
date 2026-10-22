@@ -34,7 +34,7 @@ packages/
   desktop/src/
     main/            主进程：窗口、sidecar 启动、系统目录选择
     preload/         预加载脚本：向渲染层注入运行环境信息
-    renderer/        assistant-ui 界面
+    renderer/        React 消息界面与 Markdown 渲染
     sidecar/         Core 服务进程
     shared/          主进程与预加载脚本共用的常量与类型
 ```
@@ -135,7 +135,7 @@ npm run package --workspace @easycode/desktop
 | --- | --- |
 | 主进程 | 创建窗口、拉起 sidecar、把服务地址与访问令牌注入预加载脚本、提供系统目录选择 |
 | 预加载脚本 | 通过 `contextBridge` 暴露 `serverUrl`、`serverToken`、`platform`、`homeDirectory`、`selectDirectory` |
-| 渲染进程 | assistant-ui 界面，经 HTTP 与 SSE 读取 Core 状态 |
+| 渲染进程 | 自有 React 消息界面，经 HTTP 与 SSE 读取 Core 状态 |
 | sidecar | 由 `utilityProcess` 拉起，内部加载 Core 并在回环地址上启动 HTTP 服务，就绪后把地址写入握手文件 |
 
 服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏由界面自绘，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
