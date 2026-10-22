@@ -60,12 +60,16 @@ export const grepTool = defineTool({
     try {
       regexp = new RegExp(input.pattern, input.ignoreCase === true ? "i" : "")
     } catch (error) {
-      throw new ToolFailure(`正则表达式不合法：${error instanceof Error ? error.message : String(error)}`)
+      throw new ToolFailure(`正则表达式不合法：${error instanceof Error ? error.message : String(error)}`, {
+        kind: "invalid_input",
+      })
     }
 
     // 要求模式不能匹配空字符串，否则每一行都会命中，结果毫无意义
     if (regexp.test("")) {
-      throw new ToolFailure("正则表达式可以匹配空字符串，会产生大量无意义结果。请提供更具体的模式。")
+      throw new ToolFailure("正则表达式可以匹配空字符串，会产生大量无意义结果。请提供更具体的模式。", {
+        kind: "invalid_input",
+      })
     }
 
     const target = input.path ? resolveToolPath(context.directory, input.path) : undefined
@@ -129,7 +133,7 @@ const collectCandidates = async (
 
   const info = await stat(target.absolute).catch(() => undefined)
   // 路径不存在时必须明说：报「没有匹配」会让模型以为检索过了
-  if (info === undefined) throw new ToolFailure(`路径不存在：${target.display}`)
+  if (info === undefined) throw new ToolFailure(`路径不存在：${target.display}`, { kind: "not_found" })
 
   // 指向单个文件时忽略 include：范围已经被缩小到一个文件了
   if (info.isFile()) return { files: [target.absolute], displayOf: () => target.display }

@@ -49,14 +49,17 @@ export const editTool = defineTool({
     await context.authorize({ action: "edit", resources: [target.display] })
 
     if (input.oldString.length === 0) {
-      throw new ToolFailure("oldString 不能为空。如果要整体重写文件，请使用 write 工具。")
+      throw new ToolFailure("oldString 不能为空。如果要整体重写文件，请使用 write 工具。", {
+        kind: "invalid_input",
+      })
     }
     if (input.oldString === input.newString) {
-      throw new ToolFailure("新内容与原文完全相同，不需要修改。")
+      throw new ToolFailure("新内容与原文完全相同，不需要修改。", { kind: "invalid_input" })
     }
 
     const before = await stat(target.absolute).catch(() => undefined)
-    if (!before?.isFile()) throw new ToolFailure(`文件不存在或不是普通文件：${target.display}`)
+    if (!before?.isFile())
+      throw new ToolFailure(`文件不存在或不是普通文件：${target.display}`, { kind: "not_found" })
 
     const original = await readFile(target.absolute, "utf8")
     const occurrences = countOccurrences(original, input.oldString)
@@ -65,6 +68,7 @@ export const editTool = defineTool({
       throw new ToolFailure(
         `在 ${target.display} 中找不到要替换的内容。请先用 read 工具确认原文，` +
           `注意缩进、空行和标点必须与文件完全一致。`,
+        { kind: "invalid_input" },
       )
     }
 
@@ -72,6 +76,7 @@ export const editTool = defineTool({
       throw new ToolFailure(
         `原文在 ${target.display} 中出现了 ${occurrences} 次，无法确定要替换哪一处。` +
           `请提供更多上下文让原文唯一，或设置 replaceAll=true 替换全部 ${occurrences} 处。`,
+        { kind: "invalid_input" },
       )
     }
 
@@ -84,7 +89,10 @@ export const editTool = defineTool({
     // 此时继续写入会覆盖掉别人的修改
     const current = await stat(target.absolute).catch(() => undefined)
     if (!current || current.mtimeMs !== before.mtimeMs || current.size !== before.size) {
-      throw new ToolFailure(`${target.display} 在读取之后被其它程序修改过，请重新用 read 读取后再修改。`)
+      throw new ToolFailure(`${target.display} 在读取之后被其它程序修改过，请重新用 read 读取后再修改。`, {
+        kind: "transient",
+        retryable: true,
+      })
     }
 
     await writeFile(target.absolute, updated, "utf8")

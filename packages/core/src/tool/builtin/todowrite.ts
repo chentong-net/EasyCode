@@ -44,7 +44,7 @@ export const todoWriteTool = defineTool({
   execute: async (input, context) => {
     const todos = input.todos.map((todo) => ({ content: todo.content.trim(), status: todo.status }))
     const empty = todos.filter((todo) => todo.content.length === 0)
-    if (empty.length > 0) throw new ToolFailure("任务内容不能为空")
+    if (empty.length > 0) throw new ToolFailure("任务内容不能为空", { kind: "invalid_input" })
 
     const inProgress = todos.filter((todo) => todo.status === "in_progress").length
     if (inProgress > 1) {

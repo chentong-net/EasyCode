@@ -66,7 +66,7 @@ export const readTool = defineTool({
     try {
       info = await stat(target.absolute)
     } catch {
-      throw new ToolFailure(`路径不存在：${target.display}`)
+      throw new ToolFailure(`路径不存在：${target.display}`, { kind: "not_found" })
     }
 
     if (info.isDirectory()) return listDirectory(target.absolute, target.display, input)
@@ -74,6 +74,7 @@ export const readTool = defineTool({
     if (info.size > MAX_FILE_BYTES) {
       throw new ToolFailure(
         `文件过大（${formatBytes(info.size)}），超过 ${formatBytes(MAX_FILE_BYTES)} 的读取上限。请改用 grep 检索其中的内容。`,
+        { kind: "invalid_input" },
       )
     }
 
@@ -123,7 +124,7 @@ const readImage = async (absolute: string, display: string, mime: string, size: 
 const readTextFile = async (absolute: string, display: string, input: Input): Promise<ToolResult> => {
   const buffer = await readFile(absolute)
   if (looksBinary(buffer)) {
-    throw new ToolFailure(`文件看起来是二进制内容，无法按文本读取：${display}`)
+    throw new ToolFailure(`文件看起来是二进制内容，无法按文本读取：${display}`, { kind: "invalid_input" })
   }
 
   const allLines = buffer.toString("utf8").split("\n")
@@ -133,6 +134,7 @@ const readTextFile = async (absolute: string, display: string, input: Input): Pr
   if (offset >= allLines.length) {
     throw new ToolFailure(
       `起始行号 ${offset + 1} 超出文件范围（共 ${allLines.length} 行）：${display}`,
+      { kind: "invalid_input" },
     )
   }
 
