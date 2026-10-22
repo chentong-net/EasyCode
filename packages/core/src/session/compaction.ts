@@ -7,7 +7,7 @@ import type { LLMClient, LLMMessage } from "../llm/types.js"
 import { newMessageID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
 import { estimateTextTokens } from "../util/token.js"
-import { selectHistoryMessages, estimateRequestTokens } from "./history.js"
+import { buildLLMMessages, selectHistoryMessages, estimateRequestTokens } from "./history.js"
 import type { SessionHandle } from "./runtime.js"
 
 /**
@@ -29,23 +29,40 @@ import type { SessionHandle } from "./runtime.js"
  *    （由溢出恢复路径兜底），也不要把历史毁掉。
  */
 
-/** 压缩配置。数值来自实测经验，也可以理解为「给模型留多少余量」的旋钮。 */
-export interface CompactionOptions {
-  /** 上下文窗口大小 */
+/** 根据上下文窗口推导出的压缩预算，不再使用与窗口无关的固定值。 */
+export interface CompactionBudget {
   contextWindow: number
-  /** 输出预算，压缩阈值至少要为它留出空间 */
-  maxOutputTokens: number
-  /** 缓冲区：额外预留的余量，避免在临界点反复压缩 */
-  bufferTokens: number
+  /** 为 provider 实际声明的输出预留，最多占窗口的四分之一。 */
+  outputTokens: number
+  /** 协议模板和估算误差的安全余量。 */
+  safetyMargin: number
+  /** 触发 provider 请求前的硬输入上限。 */
+  hardInputTokens: number
+  /** 达到该值时开始自动压缩。 */
+  triggerTokens: number
+  /** 压缩后希望达到的目标大小。 */
+  targetTokens: number
   /** 压缩后原样保留的最近原文，按估算 token 计 */
   keepTokens: number
+  /** 摘要请求最多可以使用的输入 token。 */
+  summaryInputTokens: number
+  /** 摘要本身允许生成的最大 token。 */
+  summaryOutputTokens: number
 }
-
-export const DEFAULT_BUFFER_TOKENS = 20_000
-export const DEFAULT_KEEP_TOKENS = 8_000
 
 /** 摘要请求里单条工具结果的字符上限。压缩的目的就是缩小体积，这里要更激进。 */
 const TRANSCRIPT_TOOL_OUTPUT_LIMIT = 2_000
+
+export type CompactionStatus = "skipped" | "completed" | "failed"
+
+export interface CompactionOutcome {
+  status: CompactionStatus
+  reason: string
+  beforeTokens?: number
+  afterTokens?: number
+  attempts: number
+  usedFallback: boolean
+}
 
 export interface CompactionDeps {
   config: CoreConfig
@@ -67,59 +84,60 @@ export interface CompactInput {
 }
 
 export interface CompactionManager {
+  /** 当前会话窗口对应的预算，Runner 也使用其中的输出预留。 */
+  budget(): CompactionBudget
   /** 估算当前请求的 token 占用 */
   estimate(system: string[], messages: LLMMessage[], tools: ToolDefinition[]): number
-  /**
-   * 必要时压缩。返回 true 表示已经压缩，调用方必须重新读取历史、重建请求。
-   * 返回 false 表示无需压缩，或压缩尝试失败（状态未被改动）。
-   */
-  compactIfNeeded(input: CompactInput): Promise<boolean>
+  /** 必要时压缩；调用方根据 completed 状态决定是否重建请求。 */
+  compactIfNeeded(input: CompactInput): Promise<CompactionOutcome>
   /** 上下文超限后的强制压缩。跳过节流判断，直接尝试。 */
-  compactAfterOverflow(input: CompactInput): Promise<boolean>
+  compactAfterOverflow(input: CompactInput): Promise<CompactionOutcome>
 }
 
 export const createCompactionManager = (deps: CompactionDeps): CompactionManager => {
   const logger = deps.logger ?? createLogger("session.compaction")
-  const options: CompactionOptions = {
-    contextWindow: deps.config.contextWindow,
-    maxOutputTokens: deps.config.maxOutputTokens,
-    bufferTokens: DEFAULT_BUFFER_TOKENS,
-    keepTokens: DEFAULT_KEEP_TOKENS,
-  }
+  const options = calculateCompactionBudget(deps.config)
 
   const estimate = (system: string[], messages: LLMMessage[], tools: ToolDefinition[]): number =>
     estimateRequestTokens(system, messages, tools)
 
-  const compactIfNeeded = async (input: CompactInput): Promise<boolean> => {
+  const compactIfNeeded = async (input: CompactInput): Promise<CompactionOutcome> => {
     const estimated = estimate(input.system, input.messages, input.tools)
-    // 输出预算与缓冲区取较大值：两者都要用上下文空间，谁大谁就是真正的约束
-    const limit = options.contextWindow - Math.max(options.maxOutputTokens, options.bufferTokens)
+    const last = input.handle.state.messages.at(-1)
+    const afterCompaction = last?.role === "compaction"
 
-    if (estimated <= limit) return false
+    if (afterCompaction ? estimated <= options.hardInputTokens : estimated <= options.triggerTokens) {
+      return { status: "skipped", reason: "context_fits", beforeTokens: estimated, attempts: 0, usedFallback: false }
+    }
 
     logger.info("上下文接近上限，开始压缩", {
       sessionID: input.handle.id,
       estimatedTokens: estimated,
-      limit,
+      triggerTokens: options.triggerTokens,
+      hardInputTokens: options.hardInputTokens,
       contextWindow: options.contextWindow,
     })
 
-    return compact(input)
+    return compact(input, "automatic", estimated)
   }
 
-  const compactAfterOverflow = async (input: CompactInput): Promise<boolean> => {
+  const compactAfterOverflow = async (input: CompactInput): Promise<CompactionOutcome> => {
     logger.info("模型报告上下文超限，尝试压缩后重试", { sessionID: input.handle.id })
-    return compact(input)
+    return compact(input, "overflow", estimate(input.system, input.messages, input.tools))
   }
 
-  const compact = async (input: CompactInput): Promise<boolean> => {
+  const compact = async (
+    input: CompactInput,
+    reason: "automatic" | "overflow",
+    beforeTokens: number,
+  ): Promise<CompactionOutcome> => {
     const state = input.handle.state
     const history = selectHistoryMessages(state, input.baselineSeq)
     const { head, tail } = splitHistory(history, options.keepTokens)
 
     if (head.length === 0 || tail.length === 0) {
       logger.warn("历史长度不足以压缩，跳过", { sessionID: input.handle.id, head: head.length, tail: tail.length })
-      return false
+      return { status: "failed", reason: "nothing_to_compact", beforeTokens, attempts: 1, usedFallback: false }
     }
 
     // 如果 head 里已经存在上一次的检查点，把它的摘要作为「已有摘要」传进去做增量合并，
@@ -130,7 +148,9 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     const subject = previous ? head.filter((message) => message !== previous) : head
 
     const summary = await summarize({ ...input, previousSummary: previous?.text }, subject)
-    if (summary === undefined) return false
+    if (summary === undefined) {
+      return { status: "failed", reason: "summary_failed", beforeTokens, attempts: 1, usedFallback: false }
+    }
 
     await input.handle.append({
       type: "compaction.ended",
@@ -139,7 +159,14 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       messageID: newMessageID(),
       text: summary,
       recentMessageIDs: tail.map((message) => message.id),
+      reason: reason === "overflow" ? "overflow" : "automatic",
+      beforeTokens,
+      attempts: 1,
+      usedFallback: false,
     })
+
+    const afterMessages = buildLLMMessages(input.handle.state, { baselineSeq: input.baselineSeq })
+    const afterTokens = estimate(input.system, afterMessages, input.tools)
 
     logger.info("压缩完成", {
       sessionID: input.handle.id,
@@ -147,7 +174,14 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       keptMessages: tail.length,
       summaryChars: summary.length,
     })
-    return true
+    return {
+      status: "completed",
+      reason: reason === "overflow" ? "overflow_compacted" : "automatic_compacted",
+      beforeTokens,
+      afterTokens,
+      attempts: 1,
+      usedFallback: false,
+    }
   }
 
   const summarize = async (
@@ -159,7 +193,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
 
     // 摘要请求本身要足够小，否则它会自己撞上上下文限制
     const promptTokens = estimateTextTokens(prompt) + estimateTextTokens(SUMMARY_SYSTEM_PROMPT)
-    const available = options.contextWindow - options.maxOutputTokens
+    const available = options.summaryInputTokens
     if (promptTokens >= available) {
       logger.warn("待压缩内容过大，摘要请求本身就会超限，已放弃本次压缩", {
         sessionID: input.handle.id,
@@ -180,6 +214,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
         messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
         // 摘要请求不带工具：避免模型在总结时又去调用工具
         tools: [],
+        maxOutputTokens: options.summaryOutputTokens,
         sessionID: input.handle.id,
         ...(input.signal ? { signal: input.signal } : {}),
       })) {
@@ -211,7 +246,47 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     return trimmed
   }
 
-  return { estimate, compactIfNeeded, compactAfterOverflow }
+  return { budget: () => ({ ...options }), estimate, compactIfNeeded, compactAfterOverflow }
+}
+
+/** 从模型窗口推导预算；小窗口下主动收紧输出和保留区，避免固定参数直接失效。 */
+export const calculateCompactionBudget = (config: CoreConfig): CompactionBudget => {
+  const contextWindow = Math.max(2_048, config.contextWindow)
+  const outputTokens = Math.max(
+    512,
+    Math.min(config.maxOutputTokens, Math.floor(contextWindow * 0.25)),
+  )
+  const safetyMargin = Math.min(
+    4_096,
+    Math.max(256, Math.floor(contextWindow * 0.05)),
+  )
+  const hardInputTokens = Math.max(1_024, contextWindow - outputTokens - safetyMargin)
+  const triggerTokens = Math.max(768, Math.floor(hardInputTokens * 0.85))
+  const targetTokens = Math.max(512, Math.floor(hardInputTokens * 0.65))
+  const keepTokens = Math.max(
+    256,
+    Math.min(8_000, Math.floor(targetTokens * 0.25)),
+  )
+  const summaryOutputTokens = Math.max(
+    256,
+    Math.min(4_096, Math.floor(contextWindow * 0.08)),
+  )
+  const summaryInputTokens = Math.max(
+    512,
+    contextWindow - summaryOutputTokens - safetyMargin,
+  )
+
+  return {
+    contextWindow,
+    outputTokens,
+    safetyMargin,
+    hardInputTokens,
+    triggerTokens,
+    targetTokens,
+    keepTokens,
+    summaryInputTokens,
+    summaryOutputTokens,
+  }
 }
 
 /**

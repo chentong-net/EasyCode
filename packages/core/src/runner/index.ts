@@ -250,7 +250,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         messages,
         signal,
       })
-      if (compacted) {
+      if (compacted.status === "completed") {
         // 压缩完成后开启新的上下文纪元：重渲染 baseline，
         // 旧纪元的中途系统消息就此退出模型历史
         await deps.context.replace(handle)
@@ -263,6 +263,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       system,
       messages,
       tools,
+      maxOutputTokens: deps.compaction.budget().outputTokens,
       ...(isLastStep ? { toolChoice: "none" as const } : {}),
       sessionID: session.id,
     }
@@ -348,7 +349,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           signal: turn.controller.signal,
         })
 
-        if (!compacted) {
+        if (compacted.status !== "completed") {
           logger.warn("上下文超限但压缩未能完成，本轮以失败结束", { sessionID: params.handle.id })
           return result
         }
