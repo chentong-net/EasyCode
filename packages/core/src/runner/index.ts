@@ -605,6 +605,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     const aborted = signal.aborted
     const needsClarification = handle.state.task?.phase === "clarify"
+    const needsBlocked = handle.state.task?.phase === "blocked"
     await finishTurn(handle, session.id, [], messageID, {
       finish: aborted ? "interrupted" : finishReason || "stop",
       usage,
@@ -620,7 +621,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       task.changedPaths.length > 0 &&
       task.verificationNudgedRevision !== task.mutationRevision
 
-    if (needsClarification) needsContinuation = false
+    if (needsClarification || needsBlocked) needsContinuation = false
 
     if (needsVerification && task) {
       await appendTask(
@@ -812,7 +813,11 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const mutation =
       input.status === "success" &&
       (metadata?.effect === "mutation" || (metadata?.changedPaths?.length ?? 0) > 0)
-    const phase = metadata?.needsInput
+    const phase = repeated >= 3
+      ? "blocked"
+      : repeated >= 2
+        ? "plan"
+        : metadata?.needsInput
       ? "clarify"
       : mutation
         ? "execute"
