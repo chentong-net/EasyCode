@@ -459,9 +459,17 @@ pre {
   color: var(--text-dim);
 }
 
-.markdown table {
-  border-collapse: collapse;
+.markdown-table-scroll {
+  max-width: 100%;
   margin: 0 0 10px;
+  overflow-x: auto;
+}
+
+.markdown table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  margin: 0;
 }
 
 .markdown th,

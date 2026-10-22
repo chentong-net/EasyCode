@@ -10,7 +10,8 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown"
 import type { Message, PermissionRequest, Usage } from "@easycode/schema"
 import { ArrowUp, Copy, Ellipsis, Plus, RefreshCw, Square } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ComponentProps } from "react"
+import remarkGfm from "remark-gfm"
 
 import { formatTokens, summarizeToolInput, usageTotal } from "./format"
 import type { EasyCodeStore } from "./store"
@@ -48,7 +49,23 @@ const ICON_STROKE = 1.8
  * `smooth` 关掉：它会让文字以「打字机」效果延迟出现，
  * 而我们已经有了真实的流式增量，再加一层动画只会让光标位置与真实进度对不上。
  */
-const MarkdownText = () => <MarkdownTextPrimitive className="markdown" smooth={false} />
+const MarkdownTable = (props: ComponentProps<"table">) => (
+  <div className="markdown-table-scroll">
+    <table {...props} />
+  </div>
+)
+
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm]
+const MARKDOWN_COMPONENTS = { table: MarkdownTable }
+
+const MarkdownText = () => (
+  <MarkdownTextPrimitive
+    className="markdown"
+    smooth={false}
+    remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+    components={MARKDOWN_COMPONENTS}
+  />
+)
 
 /** 用户消息的正文。用户输入就是纯文本，套 Markdown 会把 # 之类的字符吃掉。 */
 const PlainText = ({ text }: TextMessagePartProps) => <div className="plain-text">{text}</div>
