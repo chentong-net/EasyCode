@@ -37,6 +37,8 @@ export interface LLMRequest {
   tools: ToolDefinition[]
   /** 达到 agent 步数上限时设为 none，强制模型直接给出最终答复 */
   toolChoice?: "auto" | "none"
+  /** provider 允许生成的最大输出 token 数 */
+  maxOutputTokens?: number
   temperature?: number
   signal?: AbortSignal
   /** 会话 ID，用于把同一会话的请求路由到同一后端，提升 prompt 缓存命中率 */

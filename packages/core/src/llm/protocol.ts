@@ -71,10 +71,8 @@ interface RawUsage {
  *
  * 1. 发送 `stream_options.include_usage`。不加这个字段时，OpenAI 的流式响应
  *    不会返回 usage，而且**不会报错**——用量统计会静默地永远是 0。
- * 2. 默认不发送 max_tokens / max_completion_tokens。这两个字段在不同代际的
- *    OpenAI 模型上互不兼容（新模型拒绝 max_tokens），而多数兼容实现只认
- *    max_tokens。为了不让用户撞上一整类 400 错误，宁可不发送；
- *    上下文预算的计算用的是本地配置值，不依赖这个字段。
+ * 2. 只有调用方明确传入输出预算时才发送 max_tokens。多数 OpenAI 兼容实现
+ *    支持该字段；不传时仍然保留 provider 默认行为。
  */
 export const buildRequestBody = (request: LLMRequest): Record<string, unknown> => {
   const messages: OpenAIMessage[] = []
@@ -95,6 +93,7 @@ export const buildRequestBody = (request: LLMRequest): Record<string, unknown> =
   }
 
   if (request.temperature !== undefined) body.temperature = request.temperature
+  if (request.maxOutputTokens !== undefined) body.max_tokens = request.maxOutputTokens
 
   return body
 }
