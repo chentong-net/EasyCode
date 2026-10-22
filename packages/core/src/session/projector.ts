@@ -30,6 +30,8 @@ export interface ProjectedState {
   pendingPermissions: Map<string, PermissionRequest>
   /** 当前任务的显式工作记忆；没有新任务时为 undefined。 */
   task: TaskState | undefined
+  /** 由持久事件投影出的最近回合运行状态。 */
+  running: boolean
   /** 已消费的最大事件序号 */
   lastSeq: number
   /** 按 ID 索引消息，避免查找 part 时线性扫描 */
@@ -52,6 +54,7 @@ export const createProjectedState = (session: Session): ProjectedState => ({
   pendingInputs: new Map(),
   pendingPermissions: new Map(),
   task: undefined,
+  running: false,
   lastSeq: 0,
   messageIndex: new Map(),
   messageSeq: new Map(),
@@ -222,8 +225,11 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       break
 
     case "run.started":
+      state.running = true
+      break
+
     case "run.idle":
-      // 回合状态不改变消息历史，它是给界面判断「是否正在运行」用的
+      state.running = false
       break
 
     case "run.interrupted":

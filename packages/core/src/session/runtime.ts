@@ -12,6 +12,7 @@ import { createLogger, type Logger } from "../log.js"
 import { expandHome } from "../util/path.js"
 import { applyEvent, createProjectedState, projectEvents, type ProjectedState } from "./projector.js"
 import type { NewDurableEvent, PersistedContext, SessionStore } from "./store.js"
+import { finishTask, moveTaskPhase } from "./task.js"
 
 /** 一个已加载到内存的会话。 */
 export interface SessionHandle {
@@ -130,6 +131,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
   const recoverInterruptedRun = async (handle: SessionHandle): Promise<void> => {
     const now = Date.now()
+    const wasRunning = handle.state.running
     let recoveredTools = 0
     let recoveredMessages = 0
 
@@ -176,6 +178,21 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
 
     if (recoveredTools > 0 || recoveredMessages > 0) {
       logger.warn("已收尾被中断的回合", { sessionID: handle.id, recoveredTools, recoveredMessages })
+    }
+
+    const task = handle.state.task
+    if (wasRunning && task && !task.outcome) {
+      await handle.append({
+        type: "task.updated",
+        sessionID: handle.id,
+        timestamp: now,
+        task: finishTask(moveTaskPhase(task, "blocked"), {
+          status: "blocked",
+          summary: "进程在任务执行期间退出，任务未能正常完成。",
+          remaining: ["重新发送任务或根据已有结果继续处理。"],
+          timestamp: now,
+        }),
+      })
     }
   }
 
