@@ -131,7 +131,11 @@ export const finishTask = (
   const outcome: TaskOutcome = {
     status: input.status,
     summary: input.summary,
-    completed: [],
+    completed: [
+      ...(input.status === "success" ? ["完成用户请求"] : []),
+      ...(task.changedPaths.length > 0 ? [`修改 ${task.changedPaths.length} 个文件`] : []),
+      ...(task.verifications.some((item) => item.status === "passed") ? ["完成相关验证"] : []),
+    ],
     remaining: input.remaining ?? [],
     changedPaths: [...task.changedPaths],
     verifications: [...task.verifications],
