@@ -4,6 +4,7 @@ import { Content } from "./message.js"
 import { PermissionReply } from "./permission.js"
 import { Session, Todo } from "./session.js"
 import { TaskState } from "./task.js"
+import { ToolMetadata } from "./tool.js"
 import { Usage } from "./usage.js"
 
 /**
@@ -171,6 +172,8 @@ const ToolSettled = z.object({
   outputPaths: z.array(z.string()).optional(),
   /** 错误说明，失败时存在 */
   error: z.string().optional(),
+  /** 副作用、修改文件、验证结果与失败分类等结构化语义 */
+  metadata: ToolMetadata.optional(),
 })
 
 /** 助手消息结束，携带本轮用量与结束原因。 */

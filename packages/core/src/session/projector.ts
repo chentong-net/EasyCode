@@ -240,9 +240,17 @@ const toToolState = (event: Extract<DurableEvent, { type: "tool.settled" }>): To
       output: event.output,
       content: event.content ?? [],
       outputPaths: event.outputPaths ?? [],
+      ...(event.metadata === undefined ? {} : { metadata: event.metadata }),
     }
   }
-  return { status: "error", error: event.error ?? "工具执行失败" }
+  return {
+    status: "error",
+    error: event.error ?? "工具执行失败",
+    ...(event.output === undefined ? {} : { output: event.output }),
+    ...(event.content === undefined ? {} : { content: event.content }),
+    ...(event.outputPaths === undefined ? {} : { outputPaths: event.outputPaths }),
+    ...(event.metadata === undefined ? {} : { metadata: event.metadata }),
+  }
 }
 
 /** 追加一条消息，并登记到索引里。 */

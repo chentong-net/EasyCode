@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { ToolMetadata } from "./tool.js"
 import { Usage } from "./usage.js"
 
 /**
@@ -44,10 +45,17 @@ export const ToolState = z.discriminatedUnion("status", [
     content: z.array(Content),
     /** 因超出截断阈值而落盘的完整输出文件路径 */
     outputPaths: z.array(z.string()),
+    /** 副作用、修改文件和验证结果等结构化语义 */
+    metadata: ToolMetadata.optional(),
   }),
   z.object({
     status: z.literal("error"),
     error: z.string(),
+    /** 失败时仍可保留模型可见输出和 UI 展示数据 */
+    output: z.unknown().optional(),
+    content: z.array(Content).optional(),
+    outputPaths: z.array(z.string()).optional(),
+    metadata: ToolMetadata.optional(),
   }),
 ])
 
