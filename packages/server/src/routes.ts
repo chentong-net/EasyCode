@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 
-import type { Core, Logger } from "@easycode/core"
+import { calculateCompactionBudget, type Core, type Logger } from "@easycode/core"
 import {
   API_VERSION,
   CreateSessionRequest,
@@ -92,12 +92,13 @@ const handleRequest = async (
   }
 
   if (resource === "health" && method === "GET" && rest.length === 0) {
+    const budget = calculateCompactionBudget(core.config)
     sendJSON(res, 200, {
       ok: true,
       version: API_VERSION,
       model: core.config.model,
       contextWindow: core.config.contextWindow,
-      maxOutputTokens: core.config.maxOutputTokens,
+      maxOutputTokens: budget.outputTokens,
     } satisfies HealthResponse)
     return
   }
