@@ -380,6 +380,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     let currentPart: { kind: "text" | "reasoning"; index: number; buffer: string } | undefined
     let partIndex = 0
     const settlements: Array<Promise<void>> = []
+    let settlementChain: Promise<void> = Promise.resolve()
     let needsContinuation = false
     let usage: Usage | undefined
     let finishReason = ""
@@ -509,18 +510,20 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
             if (params.isLastStep) {
               // 步数已用尽，工具不再执行。仍然要写一条结果，
               // 否则历史里会出现没有配对结果的工具调用，后续请求会被服务端拒绝
-              settlements.push(
+              const settlement = settlementChain.then(() =>
                 appendToolSettlement(handle, session.id, {
                   callID: event.callID,
                   status: "error",
                   error: "已达到本轮的步数上限，该工具调用未执行",
                 }),
               )
+              settlementChain = settlement
+              settlements.push(settlement)
               break
             }
 
             needsContinuation = true
-            settlements.push(
+            const settlement = settlementChain.then(() =>
               settleTool({
                 handle,
                 agent,
@@ -538,6 +541,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
                 },
               }),
             )
+            settlementChain = settlement
+            settlements.push(settlement)
             break
           }
 
@@ -674,6 +679,16 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   const settleTool = async (params: SettleToolInput): Promise<void> => {
     const { handle } = params
     const session = handle.state.session
+
+    if (params.signal?.aborted) {
+      await appendToolSettlement(handle, session.id, {
+        callID: params.callID,
+        status: "error",
+        error: "工具调用已取消，未执行",
+        metadata: { failureKind: "aborted" },
+      })
+      return
+    }
 
     try {
       const settlement = await deps.tools.settle({
