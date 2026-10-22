@@ -205,10 +205,14 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     subject: Message[],
   ): Promise<{ text: string; attempts: number } | undefined> => {
     const transcript = renderTranscript(subject)
-    const prompt = buildSummaryPrompt(transcript, input.previousSummary)
-
     const available =
       options.summaryInputTokens - estimateTextTokens(SUMMARY_SYSTEM_PROMPT) - 64
+    if (available < 256) return undefined
+    const previousSummary =
+      input.previousSummary === undefined
+        ? undefined
+        : truncateToTokenBudget(input.previousSummary, Math.floor(available * 0.25))
+    const prompt = buildSummaryPrompt(transcript, previousSummary)
     let attempts = 0
 
     const run = async (
@@ -312,7 +316,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     const mergedTranscript = parts.join("\n\n---\n\n")
     const mergePrompt = buildSummaryPrompt(
       truncateToTokenBudget(mergedTranscript, Math.floor(available * 0.9)),
-      input.previousSummary,
+      previousSummary,
     )
     const merged = await valid(mergePrompt)
     return merged ? { text: merged, attempts } : undefined
