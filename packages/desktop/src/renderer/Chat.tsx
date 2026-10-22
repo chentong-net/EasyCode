@@ -98,6 +98,14 @@ const ToolCard = ({ toolName, args, result, isError }: ToolCallMessagePartProps)
           {view !== undefined && view.outputPaths.length > 0 && (
             <div className="tool-paths">完整输出已落盘：{view.outputPaths.join("、")}</div>
           )}
+          {view !== undefined && view.changedPaths.length > 0 && (
+            <div className="tool-paths">修改文件：{view.changedPaths.join("、")}</div>
+          )}
+          {view?.verification !== undefined && (
+            <div className="tool-paths">
+              验证{view.verification.status === "passed" ? "通过" : "失败"}：{view.verification.summary}
+            </div>
+          )}
         </div>
       )}
     </div>

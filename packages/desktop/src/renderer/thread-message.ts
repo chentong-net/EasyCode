@@ -23,6 +23,12 @@ export interface ToolResultView {
   text: string
   /** 因超出截断阈值而落盘的完整输出路径 */
   outputPaths: string[]
+  changedPaths: string[]
+  verification?: {
+    status: "passed" | "failed" | "unknown"
+    command?: string
+    summary: string
+  }
 }
 
 type ToolPart = Extract<Part, { type: "tool" }>
@@ -41,12 +47,20 @@ const toToolResultView = (part: ToolPart): ToolResultView | undefined => {
               .join("\n")
           : part.state.error,
       outputPaths: part.state.outputPaths ?? [],
+      changedPaths: part.state.metadata?.changedPaths ?? [],
+      ...(part.state.metadata?.verification === undefined
+        ? {}
+        : { verification: part.state.metadata.verification }),
     }
   }
   return {
     ok: true,
     text: part.state.content.map((content) => (content.type === "text" ? content.text : `[附件 ${content.name ?? content.mime}]`)).join("\n"),
     outputPaths: part.state.outputPaths,
+    changedPaths: part.state.metadata?.changedPaths ?? [],
+    ...(part.state.metadata?.verification === undefined
+      ? {}
+      : { verification: part.state.metadata.verification }),
   }
 }
 
