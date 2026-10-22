@@ -73,10 +73,11 @@ export const createCompactionBackupStore = (
   const backups = new Map<string, CompactionBackup>()
 
   const prepare = async (input: PrepareCompactionBackupInput): Promise<CompactionBackup | undefined> => {
+    const startedAt = Date.now()
     const directory = join(
       root,
       safeSegment(input.sessionID),
-      `${input.beforeTokens}-${input.id}`,
+      `${directoryTime(startedAt)}-t${input.beforeTokens}-${input.id}`,
     )
     try {
       await mkdir(directory, { recursive: true, mode: 0o700 })
@@ -85,7 +86,7 @@ export const createCompactionBackupStore = (
         id: input.id,
         sessionID: input.sessionID,
         directory,
-        startedAt: Date.now(),
+        startedAt,
         triggerReason: input.reason,
         model: input.model,
         baselineSeq: input.baselineSeq,
@@ -100,6 +101,7 @@ export const createCompactionBackupStore = (
           baselineSeq: input.baselineSeq,
           beforeTokens: input.beforeTokens,
           budget: input.budget,
+          ...timeInfo(startedAt),
         },
       }
       backups.set(input.id, backup)
@@ -163,7 +165,8 @@ export const createCompactionBackupStore = (
       ...backup.metadata,
       ...metadata,
       summaryCalls: backup.summaryCalls,
-      completedAt: Date.now(),
+      ...timeInfo(Date.now(), "completed"),
+      durationMs: Date.now() - backup.startedAt,
     }
     try {
       await writeJSON(join(backup.directory, "metadata.json"), backup.metadata)
@@ -189,7 +192,7 @@ export const createCompactionBackupStore = (
       })
       backup.metadata = {
         ...backup.metadata,
-        afterCapturedAt: Date.now(),
+        ...timeInfo(Date.now(), "afterCaptured"),
         afterRequest: {
           systemParts: request.system.length,
           messages: request.messages.length,
@@ -213,12 +216,43 @@ const backupMetadata = (backup: CompactionBackup) => ({
   version: 1,
   id: backup.id,
   sessionID: backup.sessionID,
-  startedAt: backup.startedAt,
+  ...timeInfo(backup.startedAt),
   triggerReason: backup.triggerReason,
   model: backup.model,
   baselineSeq: backup.baselineSeq,
   beforeTokens: backup.beforeTokens,
 })
+
+const directoryTime = (timestamp: number): string => {
+  const date = new Date(timestamp)
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getHours()).padStart(2, "0"),
+    String(date.getMinutes()).padStart(2, "0"),
+  ].join("")
+}
+
+const timeInfo = (timestamp: number, prefix = "started") => ({
+  [`${prefix}At`]: new Date(timestamp).toISOString(),
+  [`${prefix}AtLocal`]: localISOString(timestamp),
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "unknown",
+})
+
+const localISOString = (timestamp: number): string => {
+  const date = new Date(timestamp)
+  const offset = -date.getTimezoneOffset()
+  const sign = offset >= 0 ? "+" : "-"
+  const absolute = Math.abs(offset)
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${String(date.getMilliseconds()).padStart(3, "0")}` +
+    `${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`
+  )
+}
+
+const pad = (value: number): string => String(value).padStart(2, "0")
 
 const requestSnapshot = (request: {
   model: string
