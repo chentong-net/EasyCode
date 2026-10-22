@@ -3,6 +3,7 @@ import { z } from "zod"
 import { Content } from "./message.js"
 import { PermissionReply } from "./permission.js"
 import { Session, Todo } from "./session.js"
+import { TaskState } from "./task.js"
 import { Usage } from "./usage.js"
 
 /**
@@ -70,6 +71,18 @@ const SessionTodos = z.object({
   ...durableEnvelope,
   type: z.literal("session.todos"),
   todos: z.array(Todo),
+})
+
+/**
+ * 当前任务工作记忆的快照。
+ *
+ * 任务状态不写进消息历史，避免被上下文压缩当作普通对话处理。Runner 每次
+ * 推进阶段、记录修改或验证结果时追加该事件，历史重放可恢复同一份状态。
+ */
+const TaskUpdated = z.object({
+  ...durableEnvelope,
+  type: z.literal("task.updated"),
+  task: TaskState,
 })
 
 /**
@@ -262,6 +275,7 @@ export const DurableEvent = z.discriminatedUnion("type", [
   SessionUpdated,
   SessionFailed,
   SessionTodos,
+  TaskUpdated,
   InputAdmitted,
   InputPromoted,
   MessageStarted,

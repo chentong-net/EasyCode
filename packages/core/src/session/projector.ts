@@ -5,6 +5,7 @@ import type {
   Part,
   PermissionRequest,
   Session,
+  TaskState,
   ToolState,
 } from "@easycode/schema"
 import { addUsage, zeroUsage } from "@easycode/schema"
@@ -27,6 +28,8 @@ export interface ProjectedState {
   pendingInputs: Map<string, { text: string; delivery: Delivery }>
   /** 待审批的权限请求（已写入日志但还没收到回复的） */
   pendingPermissions: Map<string, PermissionRequest>
+  /** 当前任务的显式工作记忆；没有新任务时为 undefined。 */
+  task: TaskState | undefined
   /** 已消费的最大事件序号 */
   lastSeq: number
   /** 按 ID 索引消息，避免查找 part 时线性扫描 */
@@ -48,6 +51,7 @@ export const createProjectedState = (session: Session): ProjectedState => ({
   messages: [],
   pendingInputs: new Map(),
   pendingPermissions: new Map(),
+  task: undefined,
   lastSeq: 0,
   messageIndex: new Map(),
   messageSeq: new Map(),
@@ -91,6 +95,10 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
 
     case "session.todos":
       state.session = { ...state.session, todos: event.todos, updatedAt: event.timestamp }
+      break
+
+    case "task.updated":
+      state.task = event.task
       break
 
     case "input.admitted":
