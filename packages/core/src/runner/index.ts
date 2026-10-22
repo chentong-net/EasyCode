@@ -189,6 +189,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
         // 排队输入只在会话即将空闲时提升一条，然后重新判断是否还要继续
         if (!hasPendingInput(handle.state, "queue")) break
+        await finalizeTask(handle, false)
         promotion = "queue"
       }
     } finally {
