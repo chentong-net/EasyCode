@@ -151,6 +151,7 @@ const toolResultContent = (part: Extract<Part, { type: "tool" }>): Content[] => 
     return part.state.content.length > 0 ? part.state.content : [{ type: "text", text: "（工具执行完成，没有输出）" }]
   }
   if (part.state.status === "error") {
+    if (part.state.content && part.state.content.length > 0) return part.state.content
     return [{ type: "text", text: `工具执行失败：${part.state.error}` }]
   }
   // 走到这里说明调用还处于 pending：要么正在等待用户审批，要么上一轮进程被中断。

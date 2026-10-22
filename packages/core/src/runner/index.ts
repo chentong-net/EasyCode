@@ -1,4 +1,12 @@
-import type { Agent, Content, Delivery, TaskOutcomeStatus, TaskState, Usage } from "@easycode/schema"
+import type {
+  Agent,
+  Content,
+  Delivery,
+  TaskOutcomeStatus,
+  TaskState,
+  ToolMetadata,
+  Usage,
+} from "@easycode/schema"
 
 import { resolveAgent, type AgentRegistry } from "../agent.js"
 import type { CoreConfig } from "../config.js"
@@ -13,7 +21,7 @@ import type { SystemContextManager } from "../session/context.js"
 import { buildLLMMessages } from "../session/history.js"
 import { pendingInputList, type ProjectedState } from "../session/projector.js"
 import { DEFAULT_SESSION_TITLE, type RunDriver, type SessionHandle, type SessionManager } from "../session/runtime.js"
-import { amendTask, createTaskState, finishTask, moveTaskPhase } from "../session/task.js"
+import { amendTask, createTaskState, finishTask, moveTaskPhase, recordVerification } from "../session/task.js"
 import type { EventHub } from "../events.js"
 import type { ToolRegistry } from "../tool/registry.js"
 
@@ -682,6 +690,16 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         ...(settlement.content === undefined ? {} : { content: settlement.content }),
         ...(settlement.outputPaths === undefined ? {} : { outputPaths: settlement.outputPaths }),
         ...(settlement.error === undefined ? {} : { error: settlement.error }),
+        ...(settlement.metadata === undefined ? {} : { metadata: settlement.metadata }),
+      })
+      await updateTaskFromTool(handle, {
+        callID: params.callID,
+        name: params.name,
+        input: params.input,
+        status: settlement.status,
+        output: settlement.output,
+        error: settlement.error,
+        metadata: settlement.metadata,
       })
     } catch (error) {
       // 用户拒绝授权：不做成工具错误结果，而是让整个回合停止
@@ -690,6 +708,15 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           callID: params.callID,
           status: "error",
           error: error.message,
+          metadata: { effect: "state", failureKind: "permission" },
+        })
+        await updateTaskFromTool(handle, {
+          callID: params.callID,
+          name: params.name,
+          input: params.input,
+          status: "error",
+          error: error.message,
+          metadata: { effect: "state", failureKind: "permission" },
         })
         params.onDeclined(error.message)
         return
@@ -700,8 +727,77 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         callID: params.callID,
         status: "error",
         error: `工具执行失败：${describeError(error)}`,
+        metadata: { effect: "state", failureKind: "internal" },
+      })
+      await updateTaskFromTool(handle, {
+        callID: params.callID,
+        name: params.name,
+        input: params.input,
+        status: "error",
+        error: `工具执行失败：${describeError(error)}`,
+        metadata: { effect: "state", failureKind: "internal" },
       })
     }
+  }
+
+  const updateTaskFromTool = async (
+    handle: SessionHandle,
+    input: {
+      callID: string
+      name: string
+      input: unknown
+      status: "success" | "error"
+      output?: unknown
+      error?: string
+      metadata?: ToolMetadata
+    },
+  ): Promise<void> => {
+    const task = handle.state.task
+    if (!task || task.outcome) return
+
+    const metadata = input.metadata
+    const changedPaths = unique([
+      ...task.changedPaths,
+      ...(metadata?.changedPaths ?? []),
+    ])
+    const signature = `${input.name}:${stableStringify(input.input)}`
+    const observation = summarizeToolResult(input.status, input.output, input.error)
+    const repeated =
+      task.lastToolSignature === signature && task.lastObservation === observation
+        ? task.repeatedToolCalls + 1
+        : 0
+
+    let next: TaskState = {
+      ...task,
+      changedPaths,
+      verificationStatus:
+        changedPaths.length > task.changedPaths.length ? "stale" : task.verificationStatus,
+      phase:
+        metadata?.needsInput === true
+          ? "clarify"
+          : changedPaths.length > task.changedPaths.length
+            ? "execute"
+            : metadata?.verification
+              ? metadata.verification.status === "failed"
+                ? "verify"
+                : "finalize"
+              : task.phase,
+      toolCalls: task.toolCalls + 1,
+      repeatedToolCalls: repeated,
+      lastToolSignature: signature,
+      lastObservation: observation,
+    }
+
+    if (metadata?.verification) {
+      next = recordVerification(next, {
+        status: metadata.verification.status,
+        command: metadata.verification.command,
+        summary: metadata.verification.summary,
+        callID: input.callID,
+        timestamp: Date.now(),
+      })
+    }
+    await appendTask(handle, next)
   }
 
   /** 把工具结算结果写入事件日志。 */
@@ -719,6 +815,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       outputPaths?: string[]
       /** 失败说明，仅失败时存在 */
       error?: string
+      metadata?: ToolMetadata
     },
   ): Promise<void> => {
     await handle.append({
@@ -731,6 +828,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       ...(input.content === undefined ? {} : { content: input.content }),
       ...(input.outputPaths === undefined ? {} : { outputPaths: input.outputPaths }),
       ...(input.error === undefined ? {} : { error: input.error }),
+      ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
     })
   }
 
@@ -750,6 +848,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         callID: part.callID,
         status: "error",
         error: "该工具调用没有返回结果（可能被中断）",
+        metadata: { failureKind: "aborted" },
       })
     }
   }
@@ -888,6 +987,30 @@ const latestAssistantText = (state: ProjectedState): string | undefined => {
 
 const truncate = (text: string, limit: number): string =>
   text.length <= limit ? text : `${text.slice(0, limit)}…`
+
+const unique = (values: string[]): string[] => [...new Set(values)]
+
+const stableStringify = (value: unknown): string => {
+  if (value === undefined) return "undefined"
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`
+
+  const record = value as Record<string, unknown>
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`
+}
+
+const summarizeToolResult = (status: "success" | "error", output: unknown, error: string | undefined): string => {
+  if (error !== undefined) return truncate(error.replace(/\s+/g, " ").trim(), 300)
+  if (output === undefined) return status
+  try {
+    return truncate(JSON.stringify(output), 300)
+  } catch {
+    return status
+  }
+}
 
 /**
  * 为一个 provider turn 派生取消控制器。

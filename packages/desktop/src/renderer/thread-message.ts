@@ -30,7 +30,18 @@ type ToolPart = Extract<Part, { type: "tool" }>
 const toToolResultView = (part: ToolPart): ToolResultView | undefined => {
   if (part.state.status === "pending") return undefined
   if (part.state.status === "error") {
-    return { ok: false, text: part.state.error, outputPaths: [] }
+    return {
+      ok: false,
+      text:
+        part.state.content !== undefined && part.state.content.length > 0
+          ? part.state.content
+              .map((content) =>
+                content.type === "text" ? content.text : `[附件 ${content.name ?? content.mime}]`,
+              )
+              .join("\n")
+          : part.state.error,
+      outputPaths: part.state.outputPaths ?? [],
+    }
   }
   return {
     ok: true,
