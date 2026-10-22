@@ -209,6 +209,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | GET | `/api/sessions` | 会话列表 |
 | POST | `/api/sessions` | 创建会话，请求体为 `{ directory, title? }` |
 | GET | `/api/sessions/{id}` | 会话详情 |
+| DELETE | `/api/sessions/{id}` | 永久删除会话 |
+| POST | `/api/sessions/{id}/pin` | 置顶或取消置顶，请求体为 `{ pinned }` |
 | GET | `/api/sessions/{id}/messages` | 消息列表（事件日志的投影结果） |
 | POST | `/api/sessions/{id}/prompt` | 提交用户输入，请求体为 `{ text, delivery? }` |
 | POST | `/api/sessions/{id}/interrupt` | 中断当前回合 |
@@ -250,6 +252,9 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 模型在 `.env` 中配置，会话内保持一致
 - 八个内置工具，覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
 - 多会话：会话创建时绑定工作目录，之后保持绑定
+- 首轮回答结束后使用一次独立模型请求生成会话标题，失败时回退到输入摘要
+- 会话列表按置顶优先、最近活跃时间倒序排列，支持右键置顶和删除
+- 删除当前会话后保持无选择状态，不自动打开相邻会话
 - 两种入口：命令行与 Electron 桌面端，共用 Core 运行时
 - 事件流断线重连，按 `seq` 补发缺失事件
 - 回合具有显式任务阶段、验证门槛、无进展保护和结构化最终结果
