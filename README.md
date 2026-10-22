@@ -82,7 +82,7 @@ npm run clean       # 清理 dist 与 release 目录
 npm run build
 
 # 在工作目录下执行一次任务
-node packages/cli/dist/index.js run "统计 src 下的 TypeScript 文件数量" --dir ~/easy_code
+node packages/cli/dist/index.js run "统计 src 下的 TypeScript 文件数量" --dir ~/easycode
 
 # 列出全部会话
 node packages/cli/dist/index.js sessions
@@ -99,7 +99,7 @@ node packages/cli/dist/index.js serve --port 8080
 
 | 选项 | 适用命令 | 说明 |
 | --- | --- | --- |
-| `--dir <目录>` | `run` | 工作目录，默认 `~/easy_code` |
+| `--dir <目录>` | `run` | 工作目录，默认 `~/easycode` |
 | `--session <ID>` | `run` | 复用已有会话，省略时新建 |
 | `--reasoning` | `run` | 输出模型的推理过程 |
 | `--port <端口>` | `serve` | 监听端口，默认由系统分配空闲端口 |

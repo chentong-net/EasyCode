@@ -65,7 +65,7 @@ export type SessionListResponse = z.infer<typeof SessionListResponse>
  * 都要用它作为输入框的默认值。真正的路径展开由 Core 在创建会话时完成，
  * 因此这里保留 `~` 写法，不在这里解析成绝对路径。
  */
-export const DEFAULT_WORKSPACE_DIRECTORY = "~/easy_code"
+export const DEFAULT_WORKSPACE_DIRECTORY = "~/easycode"
 
 export const SessionResponse = Session
 

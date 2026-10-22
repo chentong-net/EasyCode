@@ -5,7 +5,7 @@
  * 也不会把一堆用不到的特性带进来。支持的写法：
  *
  * ```
- * easycode run "修复这个 bug" --dir ~/easy_code
+ * easycode run "修复这个 bug" --dir ~/easycode
  * easycode serve --port=8080  
  * easycode sessions
  * ```

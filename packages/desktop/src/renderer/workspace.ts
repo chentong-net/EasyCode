@@ -20,7 +20,7 @@ const STORAGE_KEY = "easycode.workspace"
 export interface WorkspaceState {
   /** 当前工作目录的绝对路径。undefined 表示用户还没选过。 */
   directory: string | undefined
-  /** 展示用的短路径，例如 ~/easy_code */
+  /** 展示用的短路径，例如 ~/easycode */
   label: string | undefined
   /** 是否正在等待用户在弹出的窗口里做选择 */
   selecting: boolean
