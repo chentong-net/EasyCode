@@ -1,4 +1,5 @@
-import { Folder, Plus } from "lucide-react"
+import { Folder, Pin, PinOff, Plus, Trash2 } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 import type { EasyCodeStore } from "./store"
 import type { WorkspaceState } from "./workspace"
@@ -15,6 +16,35 @@ import type { WorkspaceState } from "./workspace"
  */
 export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace: WorkspaceState }) => {
   const hasWorkspace = workspace.directory !== undefined
+  const [menu, setMenu] = useState<{ sessionID: string; x: number; y: number } | undefined>()
+  const menuRef = useRef<HTMLDivElement>(null)
+  const menuSession = menu === undefined ? undefined : store.sessions.find((session) => session.id === menu.sessionID)
+
+  useEffect(() => {
+    if (!menu) return
+    const closeOnOutside = (event: PointerEvent): void => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return
+      setMenu(undefined)
+    }
+    const closeOnEscape = (event: globalThis.KeyboardEvent): void => {
+      if (event.key === "Escape") setMenu(undefined)
+    }
+    const closeOnResize = (): void => setMenu(undefined)
+    window.addEventListener("pointerdown", closeOnOutside)
+    window.addEventListener("keydown", closeOnEscape)
+    window.addEventListener("resize", closeOnResize)
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutside)
+      window.removeEventListener("keydown", closeOnEscape)
+      window.removeEventListener("resize", closeOnResize)
+    }
+  }, [menu])
+
+  const deleteSession = (sessionID: string): void => {
+    setMenu(undefined)
+    if (!window.confirm("确定永久删除这个会话及其全部聊天记录吗？")) return
+    void store.deleteSession(sessionID)
+  }
 
   return (
     <aside className="sidebar">
@@ -59,12 +89,54 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
             type="button"
             className={`session-item${session.id === store.currentSessionID ? " session-item-active" : ""}`}
             onClick={() => store.selectSession(session.id)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setMenu({
+                sessionID: session.id,
+                x: Math.max(8, Math.min(event.clientX, window.innerWidth - 190)),
+                y: Math.max(8, Math.min(event.clientY, window.innerHeight - 100)),
+              })
+            }}
             title={session.title}
           >
-            {session.title}
+            <span className="session-title">{session.title}</span>
+            {session.pinnedAt !== undefined && (
+              <Pin size={13} strokeWidth={1.8} className="session-pin" aria-label="已置顶" />
+            )}
           </button>
         ))}
       </nav>
+
+      {menu !== undefined && menuSession !== undefined && (
+        <div
+          ref={menuRef}
+          className="session-context-menu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenu(undefined)
+              void store.pinSession(menuSession.id, menuSession.pinnedAt === undefined)
+            }}
+          >
+            {menuSession.pinnedAt === undefined ? <Pin size={14} /> : <PinOff size={14} />}
+            {menuSession.pinnedAt === undefined ? "置顶会话" : "取消置顶"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="session-context-danger"
+            onClick={() => deleteSession(menuSession.id)}
+          >
+            <Trash2 size={14} />
+            删除会话
+          </button>
+        </div>
+      )}
     </aside>
   )
 }

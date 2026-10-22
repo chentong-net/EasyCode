@@ -39,7 +39,7 @@ interface DeltaBuffer {
 }
 
 export interface EasyCodeStore {
-  /** 当前工作目录下的会话，按更新时间倒序 */
+  /** 当前工作目录下的会话，置顶优先，其次按最近活跃时间倒序 */
   sessions: Session[]
   currentSessionID: string | undefined
   currentSession: Session | undefined
@@ -61,6 +61,8 @@ export interface EasyCodeStore {
   selectSession(sessionID: string): void
   /** 在当前工作目录下新建会话 */
   createSession(): Promise<void>
+  pinSession(sessionID: string, pinned: boolean): Promise<void>
+  deleteSession(sessionID: string): Promise<void>
   send(text: string): Promise<void>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
@@ -82,6 +84,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [sessionListToken, setSessionListToken] = useState(0)
   const loadedWorkspace = useRef<string | undefined>(undefined)
   const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const keepNoSelection = useRef(false)
   const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
 
@@ -149,10 +152,13 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       setSessions([])
       setLoading(false)
       loadedWorkspace.current = undefined
+      keepNoSelection.current = false
       return
     }
 
     const controller = new AbortController()
+    const workspaceChanged = loadedWorkspace.current !== undefined && loadedWorkspace.current !== workspace
+    if (workspaceChanged) keepNoSelection.current = false
     const initialLoad = loadedWorkspace.current !== workspace
     if (initialLoad) setLoading(true)
 
@@ -162,13 +168,17 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
         if (controller.signal.aborted) return
 
         const scoped = list.filter((session) => session.directory === workspace)
-        setSessions(list)
+        setSessions(sortSessions(list))
         loadedWorkspace.current = workspace
         setLoading(false)
         // 切换到别的目录后，原来选中的会话已经不在这批里，改为打开该目录下最近的一个；
         // 只是同目录内刷新（例如标题变了）则保留用户当前的选择
         setCurrentSessionID((previous) =>
-          previous !== undefined && scoped.some((session) => session.id === previous) ? previous : scoped[0]?.id,
+          previous !== undefined && scoped.some((session) => session.id === previous)
+            ? previous
+            : keepNoSelection.current
+              ? undefined
+              : scoped[0]?.id,
         )
       } catch (cause) {
         if (controller.signal.aborted) return
@@ -350,6 +360,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   /* ---------------------------------------------------------------------- */
 
   const selectSession = useCallback((sessionID: string) => {
+    keepNoSelection.current = false
     setError(undefined)
     setCurrentSessionID(sessionID)
   }, [])
@@ -358,13 +369,46 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     if (workspace === undefined) return
     try {
       const session = await client.sessions.create({ directory: workspace })
+      keepNoSelection.current = false
       // 列表与当前会话同时更新：不用等下一次拉取，点完立刻就能用
-      setSessions((previous) => [session, ...previous])
+      setSessions((previous) => sortSessions([session, ...previous]))
       setCurrentSessionID(session.id)
     } catch (cause) {
       setError(describeError(cause))
     }
   }, [client, workspace])
+
+  const pinSession = useCallback(
+    async (sessionID: string, pinned: boolean) => {
+      try {
+        const updated = await client.sessions.pin(sessionID, { pinned })
+        setSessions((previous) =>
+          sortSessions(previous.map((session) => (session.id === sessionID ? updated : session))),
+        )
+        if (activeSessionID === sessionID) setCurrentSession(updated)
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client, activeSessionID],
+  )
+
+  const deleteSession = useCallback(
+    async (sessionID: string) => {
+      try {
+        if (activeSessionID === sessionID && running) await client.sessions.interrupt(sessionID)
+        await client.sessions.delete(sessionID)
+        setSessions((previous) => previous.filter((session) => session.id !== sessionID))
+        if (activeSessionID === sessionID) {
+          keepNoSelection.current = true
+          setCurrentSessionID(undefined)
+        }
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client, activeSessionID, running],
+  )
 
   const send = useCallback(
     async (text: string) => {
@@ -435,12 +479,24 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     maxOutputTokens,
     selectSession,
     createSession,
+    pinSession,
+    deleteSession,
     send,
     interrupt,
     replyPermission,
     clearError,
   }
 }
+
+const sortSessions = (sessions: Session[]): Session[] =>
+  [...sessions].sort((a, b) => {
+    if (a.pinnedAt !== undefined || b.pinnedAt !== undefined) {
+      if (a.pinnedAt === undefined) return 1
+      if (b.pinnedAt === undefined) return -1
+      if (a.pinnedAt !== b.pinnedAt) return b.pinnedAt - a.pinnedAt
+    }
+    return b.updatedAt - a.updatedAt
+  })
 
 /**
  * 把流式增量叠加到已投影的消息上。

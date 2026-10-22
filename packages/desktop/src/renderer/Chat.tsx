@@ -196,6 +196,9 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
   }
 
   if (store.currentSessionID === undefined) {
+    if (!store.loading && store.sessions.length > 0) {
+      return <main className="chat" aria-label="未选择会话" />
+    }
     return (
       <main className="chat">
         <div className="placeholder">

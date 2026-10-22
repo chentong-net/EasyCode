@@ -222,7 +222,9 @@ pre {
 }
 
 .session-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   height: 44px;
   padding: 0 12px;
@@ -238,12 +240,57 @@ pre {
   cursor: pointer;
 }
 
+.session-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-pin {
+  flex: none;
+  color: var(--text-faint);
+}
+
 .session-item:hover {
   background: var(--bg-hover);
 }
 
 .session-item-active {
   background: var(--bg-active);
+}
+
+.session-context-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  min-width: 176px;
+  padding: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.session-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-context-menu button:hover {
+  background: var(--bg-hover);
+}
+
+.session-context-menu .session-context-danger {
+  color: var(--danger);
 }
 
 /* ------------------------------------------------------------------ 主区 */
