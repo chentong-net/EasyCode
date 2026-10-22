@@ -134,11 +134,16 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
   ): Promise<CompactionOutcome> => {
     const state = input.handle.state
     const history = selectHistoryMessages(state, input.baselineSeq)
+    const targetTokens =
+      reason === "overflow"
+        ? Math.max(512, Math.min(options.targetTokens, Math.floor(beforeTokens * 0.7)))
+        : options.targetTokens
+    const keepTokens = Math.max(256, Math.min(options.keepTokens, Math.floor(targetTokens * 0.25)))
     const previous = history.find((message): message is Extract<Message, { role: "compaction" }> =>
       message.role === "compaction",
     )
     const candidates = history.filter((message) => message.role !== "compaction")
-    const { head, tail } = splitHistory(candidates, options.keepTokens)
+    const { head, tail } = splitHistory(candidates, keepTokens)
 
     if (head.length === 0 || tail.length === 0) {
       logger.warn("历史长度不足以压缩，跳过", { sessionID: input.handle.id, head: head.length, tail: tail.length })

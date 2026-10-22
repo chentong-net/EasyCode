@@ -321,7 +321,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
    */
   const streamTurn = async (params: StreamParams): Promise<TurnResult> => {
     const turn = createTurnController(params.parentSignal)
-    const request: LLMRequest = { ...params.request, signal: turn.controller.signal }
+    let request: LLMRequest = { ...params.request, signal: turn.controller.signal }
 
     try {
       let attempt = 0
@@ -337,7 +337,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
           signal: turn.controller.signal,
           parentSignal: params.parentSignal,
         })
-        if (!result.overflow || attempt >= 1) return result
+        if (!result.overflow || attempt >= 2) return result
 
         attempt += 1
         const compacted = await deps.compaction.compactAfterOverflow({
@@ -355,6 +355,12 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         }
 
         await deps.context.replace(params.handle)
+        const systemContext = await deps.context.ensure(params.handle)
+        request = {
+          ...request,
+          system: [params.agent.system, systemContext.baseline].filter((part) => part.length > 0),
+          messages: buildLLMMessages(params.handle.state, { baselineSeq: systemContext.baselineSeq }),
+        }
         logger.info("压缩完成，重试本次请求", { sessionID: params.handle.id })
       }
     } finally {
