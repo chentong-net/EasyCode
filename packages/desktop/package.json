@@ -16,8 +16,6 @@
     "package": "npm run build && electron-builder"
   },
   "devDependencies": {
-    "@assistant-ui/react": "^0.15.20",
-    "@assistant-ui/react-markdown": "^0.14.15",
     "@easycode/client": "*",
     "@easycode/core": "*",
     "@easycode/protocol": "*",
@@ -32,6 +30,7 @@
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "vite": "^8.3.0"
   }
