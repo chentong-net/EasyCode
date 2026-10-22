@@ -7,6 +7,7 @@ import type {
   ToolMetadata,
   Usage,
 } from "@easycode/schema"
+import { addUsage } from "@easycode/schema"
 
 import { resolveAgent, type AgentRegistry } from "../agent.js"
 import type { CoreConfig } from "../config.js"
@@ -194,6 +195,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       }
     } finally {
       await finalizeTask(handle, controller.signal.aborted)
+      if (!controller.signal.aborted) await generateTitle(handle, agent, controller.signal)
       // 空闲事件必须写：界面靠它撤销「正在运行」状态。
       // 放在 finally 里是因为无论是正常结束、异常还是中断，
       // 界面都必须从运行态回到空闲态，否则停止按钮会一直挂着
@@ -971,7 +973,6 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         messageID,
       })
       texts.push(item.text)
-      await updateTitleFromFirstInput(handle, item.text)
     }
 
     if (texts.length > 0) {
@@ -1073,16 +1074,61 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     )
   }
 
-  /** 首次输入到达时，用它的开头作为会话标题。避免额外调用模型生成标题。 */
-  const updateTitleFromFirstInput = async (handle: SessionHandle, text: string): Promise<void> => {
+  const generateTitle = async (handle: SessionHandle, agent: Agent, signal: AbortSignal): Promise<void> => {
     if (handle.state.session.title !== DEFAULT_SESSION_TITLE) return
-    const title = text.replace(/\s+/g, " ").trim().slice(0, 30)
+    const user = firstUserText(handle.state)
+    const assistant = firstAssistantText(handle.state)
+    if (!user || !assistant) return
+
+    let generated = ""
+    let usage: Usage | undefined
+    try {
+      for await (const event of deps.llm.stream({
+        model: handle.state.session.model,
+        system: [TITLE_SYSTEM_PROMPT],
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: [
+                  "用户请求：",
+                  truncate(user, 6_000),
+                  "",
+                  "助手回答：",
+                  truncate(assistant, 6_000),
+                ].join("\n"),
+              },
+            ],
+          },
+        ],
+        tools: [],
+        maxOutputTokens: 64,
+        sessionID: `${handle.id}_title`,
+        signal,
+      })) {
+        if (event.type === "text.delta") generated += event.text
+        if (event.type === "usage") usage = event.usage
+      }
+    } catch (error) {
+      logger.warn("生成会话标题失败，将使用输入摘要", {
+        sessionID: handle.id,
+        agent: agent.id,
+        error: describeError(error),
+      })
+    }
+
+    if (signal.aborted) return
+    if (handle.state.session.title !== DEFAULT_SESSION_TITLE) return
+    const title = normaliseTitle(generated) || fallbackTitle(user)
     if (title.length === 0) return
     await handle.append({
       type: "session.updated",
       sessionID: handle.id,
       timestamp: Date.now(),
-      title: title.length < text.length ? `${title}…` : title,
+      title,
+      ...(usage ? { usage: addUsage(handle.state.session.usage, usage) } : {}),
     })
   }
 
@@ -1106,6 +1152,51 @@ const latestAssistantText = (state: ProjectedState): string | undefined => {
   }
   return undefined
 }
+
+const firstUserText = (state: ProjectedState): string | undefined => {
+  for (const message of state.messages) {
+    if (message.role !== "user") continue
+    const text = message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("")
+      .trim()
+    if (text.length > 0) return text
+  }
+  return undefined
+}
+
+const firstAssistantText = (state: ProjectedState): string | undefined => {
+  for (const message of state.messages) {
+    if (message.role !== "assistant") continue
+    const text = message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("")
+      .trim()
+    if (text.length > 0) return text
+  }
+  return undefined
+}
+
+const normaliseTitle = (value: string): string => {
+  const line = value
+    .split("\n")
+    .map((item) => item.trim())
+    .find((item) => item.length > 0)
+  if (!line) return ""
+  const cleaned = line
+    .replace(/^(标题|会话标题)\s*[：:]\s*/i, "")
+    .replace(/^#+\s*/, "")
+    .replace(/[*_`#>]/g, "")
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, "")
+    .replace(/[。！？!?；;，,]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  return cleaned.length <= 30 ? cleaned : `${cleaned.slice(0, 29)}…`
+}
+
+const fallbackTitle = (text: string): string => normaliseTitle(text) || "新会话"
 
 const truncate = (text: string, limit: number): string =>
   text.length <= limit ? text : `${text.slice(0, limit)}…`
@@ -1149,6 +1240,15 @@ const SOFT_STEPS_PROMPT = `任务已经接近步数软上限。请立即评估�
 - 如果已经收集足够信息，进入验证和收尾。
 - 如仍需要较多工作，请精简计划并保留最关键任务。
 - 不得把尚未执行的工作描述为已经完成。`
+
+const TITLE_SYSTEM_PROMPT = `你负责为 Coding Agent 对话生成短标题。
+
+要求：
+- 只输出一个标题，不要解释，不要 Markdown，不要引号。
+- 使用中文，长度 2 到 20 个汉字左右，最多 30 个字符。
+- 优先描述用户要完成的具体工程任务，而不是寒暄或宽泛分类。
+- 不要包含句号、逗号、感叹号或其他句尾标点。
+- 不要调用工具。`
 
 /**
  * 为一个 provider turn 派生取消控制器。
