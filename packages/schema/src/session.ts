@@ -39,6 +39,8 @@ export const Session = z.object({
   model: z.string(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /** 置顶时间；未置顶时为空。 */
+  pinnedAt: z.number().int().positive().optional(),
   /** 会话级累计用量，用于 UI 展示 */
   usage: Usage,
   /** 当前的任务清单，由 todowrite 工具维护 */

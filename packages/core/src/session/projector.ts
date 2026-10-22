@@ -87,6 +87,10 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       const next: Session = { ...state.session }
       if (event.title !== undefined) next.title = event.title
       if (event.usage !== undefined) next.usage = event.usage
+      if (event.pinnedAt !== undefined) {
+        if (event.pinnedAt === null) delete next.pinnedAt
+        else next.pinnedAt = event.pinnedAt
+      }
       next.updatedAt = event.timestamp
       state.session = next
       break

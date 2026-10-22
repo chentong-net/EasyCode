@@ -49,6 +49,9 @@ export const Endpoints = {
   /** 单个会话：GET 详情 */
   session: (sessionID: string): string => sessionPath(sessionID),
 
+  /** 置顶或取消置顶会话 */
+  pinSession: (sessionID: string): string => `${sessionPath(sessionID)}/pin`,
+
   /** 会话的消息列表 */
   messages: (sessionID: string): string => `${sessionPath(sessionID)}/messages`,
 

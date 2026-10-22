@@ -53,6 +53,8 @@ const SessionUpdated = z.object({
   type: z.literal("session.updated"),
   title: z.string().optional(),
   usage: Usage.optional(),
+  /** null 表示取消置顶。 */
+  pinnedAt: z.number().int().positive().nullable().optional(),
 })
 
 /** 会话级失败，例如请求模型时认证失败、网络不可达。 */

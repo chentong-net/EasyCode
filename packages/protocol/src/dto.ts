@@ -71,6 +71,12 @@ export const SessionResponse = Session
 
 export type SessionResponse = z.infer<typeof SessionResponse>
 
+export const PinSessionRequest = z.object({
+  pinned: z.boolean(),
+})
+
+export type PinSessionRequest = z.infer<typeof PinSessionRequest>
+
 export const MessageListResponse = z.array(Message)
 
 export type MessageListResponse = z.infer<typeof MessageListResponse>

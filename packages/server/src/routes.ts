@@ -5,6 +5,7 @@ import {
   API_VERSION,
   CreateSessionRequest,
   Endpoints,
+  PinSessionRequest,
   PermissionReplyRequest,
   PromptRequest,
   ProtocolError,
@@ -140,8 +141,24 @@ const handleRequest = async (
   const action = rest[1]
 
   if (action === undefined) {
-    if (method !== "GET") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
-    sendJSON(res, 200, await requireSession(core, sessionID))
+    await requireSession(core, sessionID)
+    if (method === "GET") {
+      sendJSON(res, 200, await core.sessions.get(sessionID))
+      return
+    }
+    if (method === "DELETE") {
+      await core.sessions.delete(sessionID)
+      sendJSON(res, 200, { ok: true })
+      return
+    }
+    throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+  }
+
+  if (action === "pin") {
+    if (method !== "POST") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+    await requireSession(core, sessionID)
+    const body = parseBody(PinSessionRequest, await readJSON(req))
+    sendJSON(res, 200, await core.sessions.pin(sessionID, body.pinned))
     return
   }
 
@@ -253,6 +270,8 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.sessions()}`,
   `POST ${Endpoints.sessions()}`,
   `GET  ${Endpoints.session(":id")}`,
+  `DELETE ${Endpoints.session(":id")}`,
+  `POST ${Endpoints.pinSession(":id")}`,
   `GET  ${Endpoints.messages(":id")}`,
   `POST ${Endpoints.prompt(":id")}`,
   `POST ${Endpoints.interrupt(":id")}`,

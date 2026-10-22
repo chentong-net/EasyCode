@@ -63,6 +63,10 @@ export interface SessionManager {
   prompt(sessionID: string, input: { text: string; delivery?: Delivery }): Promise<{ inputID: string }>
   /** 中断当前回合。空闲时是空操作，因此可以安全重试。 */
   interrupt(sessionID: string): Promise<void>
+  /** 置顶或取消置顶会话。 */
+  pin(sessionID: string, pinned: boolean): Promise<Session>
+  /** 永久删除会话；运行中的会话会先被中断。 */
+  delete(sessionID: string): Promise<void>
   isRunning(sessionID: string): boolean
   /** 取出会话句柄（必要时从磁盘加载） */
   handle(sessionID: string): Promise<SessionHandle>
@@ -258,6 +262,22 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     interrupt: async (sessionID) => {
       if (!driver) return
       await driver.interrupt(sessionID)
+    },
+    pin: async (sessionID, pinned) => {
+      const handle = await load(sessionID)
+      await handle.append({
+        type: "session.updated",
+        sessionID,
+        timestamp: Date.now(),
+        pinnedAt: pinned ? Date.now() : null,
+      })
+      return handle.state.session
+    },
+    delete: async (sessionID) => {
+      if (driver?.isRunning(sessionID)) await driver.interrupt(sessionID)
+      await deps.store.deleteSession(sessionID)
+      handles.delete(sessionID)
+      logger.info("已删除会话", { sessionID })
     },
     isRunning: (sessionID) => driver?.isRunning(sessionID) ?? false,
     handle: load,

@@ -4,6 +4,7 @@ import {
   HealthResponse,
   MessageListResponse,
   PermissionListResponse,
+  PinSessionRequest,
   PromptResponse,
   ProtocolError,
   SessionListResponse,
@@ -77,6 +78,8 @@ export interface EasyCodeClient {
     list(signal?: AbortSignal): Promise<Session[]>
     create(input: CreateSessionRequest, signal?: AbortSignal): Promise<Session>
     get(sessionID: string, signal?: AbortSignal): Promise<Session>
+    pin(sessionID: string, input: PinSessionRequest, signal?: AbortSignal): Promise<Session>
+    delete(sessionID: string, signal?: AbortSignal): Promise<void>
     messages(sessionID: string, signal?: AbortSignal): Promise<Message[]>
     /** 提交输入。接口只负责接纳，执行进度通过事件流反馈。 */
     prompt(sessionID: string, input: PromptRequest, signal?: AbortSignal): Promise<PromptResponse>
@@ -117,6 +120,12 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       create: (input, signal) => post(transport, Endpoints.sessions(), input, SessionResponse, signal),
 
       get: (sessionID, signal) => get(transport, Endpoints.session(sessionID), SessionResponse, signal),
+
+      pin: (sessionID, input, signal) => post(transport, Endpoints.pinSession(sessionID), input, SessionResponse, signal),
+
+      delete: async (sessionID, signal) => {
+        await requestDelete(transport, Endpoints.session(sessionID), signal)
+      },
 
       messages: (sessionID, signal) => get(transport, Endpoints.messages(sessionID), MessageListResponse, signal),
 
@@ -167,6 +176,10 @@ const post = async <T extends ZodTypeAny>(
     ...(signal === undefined ? {} : { signal }),
   })
   return parseResponse(schema, raw, path)
+}
+
+const requestDelete = async (transport: TransportOptions, path: string, signal?: AbortSignal): Promise<void> => {
+  await requestJSON<unknown>(transport, "DELETE", path, signal === undefined ? {} : { signal })
 }
 
 /**

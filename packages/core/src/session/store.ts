@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises"
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { DurableEvent, Session } from "@easycode/schema"
@@ -60,6 +60,8 @@ export interface SessionStore {
   list(): Promise<Session[]>
   readSession(sessionID: string): Promise<Session | undefined>
   writeSession(session: Session): Promise<void>
+  /** 永久删除一个会话及其全部事件、上下文和工具输出引用。 */
+  deleteSession(sessionID: string): Promise<void>
 
   /** 追加一条事件到日志末尾。seq 由调用方分配。 */
   appendEvent(sessionID: string, seq: number, event: NewDurableEvent): Promise<DurableEvent>
@@ -79,7 +81,10 @@ export const createSessionStore = (config: CoreConfig): SessionStore => {
   const sessionsDir = join(config.dataDir, "sessions")
   const toolOutputDir = join(config.dataDir, "tool-output")
 
-  const sessionDirectory = (sessionID: string): string => join(sessionsDir, sessionID)
+  const sessionDirectory = (sessionID: string): string => {
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionID)) throw new Error(`会话 ID 不合法：${sessionID}`)
+    return join(sessionsDir, sessionID)
+  }
 
   const ensureSessionDirectory = async (sessionID: string): Promise<void> => {
     await mkdir(sessionDirectory(sessionID), { recursive: true })
@@ -100,7 +105,7 @@ export const createSessionStore = (config: CoreConfig): SessionStore => {
     const sessions = await Promise.all(entries.map((id) => readSession(id)))
     return sessions
       .filter((session): session is Session => session !== undefined)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .sort(compareSessions)
   }
 
   // 注意：这里的 readSession 在工厂内部先定义再被 list 引用，
@@ -128,6 +133,12 @@ export const createSessionStore = (config: CoreConfig): SessionStore => {
   const writeSession = async (session: Session): Promise<void> => {
     await ensureSessionDirectory(session.id)
     await writeJSONAtomic(join(sessionDirectory(session.id), "session.json"), session)
+  }
+
+  const deleteSession = async (sessionID: string): Promise<void> => {
+    const directory = sessionDirectory(sessionID)
+    await rm(directory, { recursive: true, force: true })
+    logger.info("已删除会话目录", { sessionID })
   }
 
   const appendEvent = async (sessionID: string, seq: number, event: NewDurableEvent): Promise<DurableEvent> => {
@@ -243,6 +254,7 @@ export const createSessionStore = (config: CoreConfig): SessionStore => {
     list,
     readSession,
     writeSession,
+    deleteSession,
     appendEvent,
     readEvents,
     readContext,
@@ -250,6 +262,15 @@ export const createSessionStore = (config: CoreConfig): SessionStore => {
     saveToolOutput,
     cleanupToolOutput,
   }
+}
+
+const compareSessions = (a: Session, b: Session): number => {
+  if (a.pinnedAt !== undefined || b.pinnedAt !== undefined) {
+    if (a.pinnedAt === undefined) return 1
+    if (b.pinnedAt === undefined) return -1
+    if (a.pinnedAt !== b.pinnedAt) return b.pinnedAt - a.pinnedAt
+  }
+  return b.updatedAt - a.updatedAt
 }
 
 /**
