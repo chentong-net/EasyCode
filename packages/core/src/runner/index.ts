@@ -1,4 +1,4 @@
-import type { Agent, Content, Delivery, Usage } from "@easycode/schema"
+import type { Agent, Content, Delivery, TaskOutcomeStatus, TaskState, Usage } from "@easycode/schema"
 
 import { resolveAgent, type AgentRegistry } from "../agent.js"
 import type { CoreConfig } from "../config.js"
@@ -13,6 +13,7 @@ import type { SystemContextManager } from "../session/context.js"
 import { buildLLMMessages } from "../session/history.js"
 import { pendingInputList, type ProjectedState } from "../session/projector.js"
 import { DEFAULT_SESSION_TITLE, type RunDriver, type SessionHandle, type SessionManager } from "../session/runtime.js"
+import { amendTask, createTaskState, finishTask, moveTaskPhase } from "../session/task.js"
 import type { EventHub } from "../events.js"
 import type { ToolRegistry } from "../tool/registry.js"
 
@@ -183,6 +184,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         promotion = "queue"
       }
     } finally {
+      await finalizeTask(handle, controller.signal.aborted)
       // 空闲事件必须写：界面靠它撤销「正在运行」状态。
       // 放在 finally 里是因为无论是正常结束、异常还是中断，
       // 界面都必须从运行态回到空闲态，否则停止按钮会一直挂着
@@ -217,7 +219,8 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     // 1. 提升输入。有输入被提升时重置步数预算。
     const promoted = await promoteInputs(handle, params.promotion)
-    const step = promoted > 0 ? 1 : params.step
+    const step = promoted.count > 0 ? 1 : params.step
+    await ensureTask(handle, promoted.texts)
 
     // 2. 系统上下文。首次进入会渲染并冻结 baseline，之后只做变化比对。
     const systemContext = await deps.context.ensure(handle)
@@ -429,6 +432,18 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         usage,
         error: declined,
       })
+      const task = handle.state.task
+      if (task && !task.outcome) {
+        await appendTask(
+          handle,
+          finishTask(moveTaskPhase(task, "blocked"), {
+            status: "blocked",
+            summary: declined ?? "用户拒绝执行该操作",
+            remaining: ["用户拒绝后剩余工作未继续执行。"],
+            timestamp: Date.now(),
+          }),
+        )
+      }
       return { needsContinuation: false, step: params.step, overflow: false }
     }
 
@@ -749,11 +764,14 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
    * `steer` 提升全部插话；`queue` 只提升一条排队输入，同时把插话一并提升。
    * 返回提升的条数，调用方据此决定是否重置步数预算。
    */
-  const promoteInputs = async (handle: SessionHandle, delivery: Delivery | undefined): Promise<number> => {
-    if (delivery === undefined) return 0
+  const promoteInputs = async (
+    handle: SessionHandle,
+    delivery: Delivery | undefined,
+  ): Promise<{ count: number; texts: string[] }> => {
+    if (delivery === undefined) return { count: 0, texts: [] }
 
     const pending = pendingInputList(handle.state)
-    if (pending.length === 0) return 0
+    if (pending.length === 0) return { count: 0, texts: [] }
 
     const selected =
       delivery === "steer"
@@ -763,7 +781,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
             ...pending.filter((item) => item.delivery === "steer"),
           ]
 
-    let promoted = 0
+    const texts: string[] = []
     for (const item of selected) {
       const messageID = newMessageID()
       await handle.append({
@@ -773,12 +791,65 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         inputID: item.inputID,
         messageID,
       })
-      promoted += 1
+      texts.push(item.text)
       await updateTitleFromFirstInput(handle, item.text)
     }
 
-    if (promoted > 0) logger.info("已提升用户输入", { sessionID: handle.id, count: promoted, delivery })
-    return promoted
+    if (texts.length > 0) logger.info("已提升用户输入", { sessionID: handle.id, count: texts.length, delivery })
+    return { count: texts.length, texts }
+  }
+
+  const appendTask = async (handle: SessionHandle, task: TaskState): Promise<void> => {
+    await handle.append({
+      type: "task.updated",
+      sessionID: handle.id,
+      timestamp: Date.now(),
+      task,
+    })
+  }
+
+  const ensureTask = async (handle: SessionHandle, inputs: string[]): Promise<void> => {
+    if (inputs.length === 0) return
+
+    const current = handle.state.task
+    if (!current || current.outcome) {
+      const first = inputs[0]
+      if (first === undefined) return
+      await appendTask(handle, createTaskState(first, Date.now()))
+      return
+    }
+
+    let amended = current
+    for (const input of inputs) amended = amendTask(amended, input)
+    await appendTask(handle, amended)
+  }
+
+  const finalizeTask = async (handle: SessionHandle, interrupted: boolean): Promise<void> => {
+    const task = handle.state.task
+    if (!task || task.outcome) return
+
+    const summary = latestAssistantText(handle.state) || "本轮已结束，没有生成可总结的回复。"
+    let status: TaskOutcomeStatus = "success"
+    const remaining: string[] = []
+
+    if (interrupted) status = "cancelled"
+    else if (task.phase === "blocked") status = "blocked"
+    else if (task.verificationStatus === "stale" || task.verificationStatus === "failed") {
+      status = "partial"
+      remaining.push(
+        task.verificationStatus === "failed" ? "相关验证仍然失败。" : "修改尚未经过验证。",
+      )
+    }
+
+    await appendTask(
+      handle,
+      finishTask(task, {
+        status,
+        summary: truncate(summary, 800),
+        remaining,
+        timestamp: Date.now(),
+      }),
+    )
   }
 
   /** 首次输入到达时，用它的开头作为会话标题。避免额外调用模型生成标题。 */
@@ -800,6 +871,23 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 /** 判断会话里是否存在指定投递方式的待处理输入。 */
 const hasPendingInput = (state: ProjectedState, delivery: Delivery): boolean =>
   [...state.pendingInputs.values()].some((input) => input.delivery === delivery)
+
+const latestAssistantText = (state: ProjectedState): string | undefined => {
+  for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+    const message = state.messages[index]
+    if (!message || message.role !== "assistant") continue
+    const text = message.parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("")
+      .trim()
+    if (text.length > 0) return text
+  }
+  return undefined
+}
+
+const truncate = (text: string, limit: number): string =>
+  text.length <= limit ? text : `${text.slice(0, limit)}…`
 
 /**
  * 为一个 provider turn 派生取消控制器。
