@@ -3,6 +3,7 @@ import { bashTool } from "./bash.js"
 import { editTool } from "./edit.js"
 import { globTool } from "./glob.js"
 import { grepTool } from "./grep.js"
+import { questionTool } from "./question.js"
 import { readTool } from "./read.js"
 import { todoWriteTool } from "./todowrite.js"
 import { writeTool } from "./write.js"
@@ -24,7 +25,8 @@ export const createBuiltinTools = (): Tool<unknown>[] => [
   editTool,
   writeTool,
   bashTool,
+  questionTool,
   todoWriteTool,
 ]
 
-export { bashTool, editTool, globTool, grepTool, readTool, todoWriteTool, writeTool }
+export { bashTool, editTool, globTool, grepTool, questionTool, readTool, todoWriteTool, writeTool }

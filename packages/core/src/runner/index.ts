@@ -604,6 +604,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     if (declinedThisTurn()) return finishDeclined()
 
     const aborted = signal.aborted
+    const needsClarification = handle.state.task?.phase === "clarify"
     await finishTurn(handle, session.id, [], messageID, {
       finish: aborted ? "interrupted" : finishReason || "stop",
       usage,
@@ -613,10 +614,13 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const needsVerification =
       !aborted &&
       !params.isLastStep &&
+      !needsClarification &&
       task !== undefined &&
       task.verificationStatus === "stale" &&
       task.changedPaths.length > 0 &&
       task.verificationNudgedRevision !== task.mutationRevision
+
+    if (needsClarification) needsContinuation = false
 
     if (needsVerification && task) {
       await appendTask(
@@ -969,6 +973,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
   const finalizeTask = async (handle: SessionHandle, interrupted: boolean): Promise<void> => {
     const task = handle.state.task
     if (!task || task.outcome) return
+    if (task.phase === "clarify" && !interrupted) return
 
     const summary = latestAssistantText(handle.state) || "本轮已结束，没有生成可总结的回复。"
     let status: TaskOutcomeStatus = "success"
