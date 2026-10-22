@@ -212,7 +212,8 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
       input.previousSummary === undefined
         ? undefined
         : truncateToTokenBudget(input.previousSummary, Math.floor(available * 0.25))
-    const prompt = buildSummaryPrompt(transcript, previousSummary)
+    const taskMemory = taskMemorySummary(input.handle.state.task)
+    const prompt = buildSummaryPrompt(transcript, previousSummary, taskMemory)
     let attempts = 0
 
     const run = async (
@@ -317,6 +318,7 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
     const mergePrompt = buildSummaryPrompt(
       truncateToTokenBudget(mergedTranscript, Math.floor(available * 0.9)),
       previousSummary,
+      taskMemory,
     )
     const merged = await valid(mergePrompt)
     return merged ? { text: merged, attempts } : undefined
@@ -626,10 +628,17 @@ const hasSummaryTemplate = (text: string): boolean =>
   SUMMARY_HEADINGS.every((heading) => text.includes(heading))
 
 /** 摘要请求的用户消息。 */
-const buildSummaryPrompt = (transcript: string, previousSummary?: string): string => {
+const buildSummaryPrompt = (
+  transcript: string,
+  previousSummary?: string,
+  taskMemory?: string,
+): string => {
   const sections: string[] = []
   if (previousSummary) {
     sections.push(["# 已有摘要", previousSummary, ""].join("\n"))
+  }
+  if (taskMemory) {
+    sections.push(["# 当前任务账本", taskMemory, ""].join("\n"))
   }
   sections.push(
     [
