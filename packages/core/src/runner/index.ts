@@ -351,6 +351,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
         if (compacted.status !== "completed") {
           logger.warn("上下文超限但压缩未能完成，本轮以失败结束", { sessionID: params.handle.id })
+          await blockTask(params.handle, `上下文压缩失败：${compacted.reason}`)
           return result
         }
 
@@ -587,6 +588,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       }
 
       logger.warn("本轮请求失败", { sessionID: session.id, messageID, error: describeError(error) })
+      await blockTask(handle, describeError(failure))
       await finishTurn(handle, session.id, settlements, messageID, {
         finish: isAbortLike(failure) ? "interrupted" : "error",
         usage,
@@ -993,7 +995,10 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     const remaining: string[] = []
 
     if (interrupted) status = "cancelled"
-    else if (task.phase === "blocked") status = "blocked"
+    else if (task.phase === "blocked") {
+      status = "blocked"
+      remaining.push(task.lastObservation ?? "任务因执行错误而停止。")
+    }
     else if (task.verificationStatus === "stale" || task.verificationStatus === "failed") {
       status = "partial"
       remaining.push(
@@ -1009,6 +1014,21 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         remaining,
         timestamp: Date.now(),
       }),
+    )
+  }
+
+  const blockTask = async (handle: SessionHandle, reason: string): Promise<void> => {
+    const task = handle.state.task
+    if (!task || task.outcome) return
+    await appendTask(
+      handle,
+      moveTaskPhase(
+        {
+          ...task,
+          lastObservation: truncate(reason.replace(/\s+/g, " ").trim(), 300),
+        },
+        "blocked",
+      ),
     )
   }
 
