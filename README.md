@@ -28,6 +28,7 @@ packages/
     llm/             OpenAI 兼容协议的报文编解码与流式解析
     session/         事件日志、投影、上下文组装、compaction（压缩）
     tool/            工具定义、内置工具、路径解析与目录边界
+      builtin/web/   可选的网页搜索、抓取及其厂商映射
     permission/      权限规则求值
     runner/          回合循环
   server/src/        HTTP 路由与 SSE
@@ -64,11 +65,19 @@ cp .env.example .env
 | `OPENAI_MAX_OUTPUT_TOKENS` | `8192` | 单轮回复的输出预算，参与上下文计算 |
 | `OPENAI_TEMPERATURE` | 空 | 采样温度；留空时请求体省略该字段 |
 | `OPENAI_EXTRA_HEADERS` | 空 | 附加请求头，格式为 `KEY1=VALUE1,KEY2=VALUE2` |
+| `EASYCODE_WEB_SEARCH_PROVIDER` | 空（不启用） | 搜索厂商，取值 `deepseek` / `glm` / `tavily` |
+| `EASYCODE_WEB_SEARCH_API_KEY` | 空（不启用） | 搜索服务的通用 API Key |
+| `EASYCODE_WEB_FETCH_PROVIDER` | 空（不启用） | 网页读取厂商，可独立于搜索配置 |
+| `EASYCODE_WEB_FETCH_API_KEY` | 空（不启用） | 网页读取服务的通用 API Key |
+| `EASYCODE_WEB_TIMEOUT_MS` | `30000` | 单次厂商请求和响应读取的超时，最大 120000 |
+| `EASYCODE_WEB_MAX_RESPONSE_BYTES` | `8388608` | 厂商响应读取上限，最大 32 MB |
 | `EASYCODE_DATA_DIR` | `~/easycode/.easycode` | 会话日志、context snapshot（快照）与工具输出的存放目录，支持 `~` |
 | `EASYCODE_LOG_LEVEL` | `info` | 取值 `debug` / `info` / `warn` / `error`；日志写入 stderr，设置 `EASYCODE_LOG_FILE` 时同时落盘 |
 | `EASYCODE_ENV_FILE` | 空 | 显式指定配置文件路径，优先级高于工作目录下的 `.env` |
 
 密钥只在 Core 进程内使用，渲染进程通过 HTTP 接口获取会话数据。
+
+搜索和抓取分别要求同时配置 Provider 与对应的通用 API Key；任意一项缺失时，该工具不会注册。系统不会自动选择厂商，也不会复用 `OPENAI_API_KEY`。
 
 ## 构建与检查
 
@@ -179,7 +188,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认裁决为 `ask`。一次调用涉及多个资源时取最严格的结果。
 
-内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
+内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认分别按查询词和 URL 请求确认。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
 
 ### 内置工具
 
@@ -193,8 +202,12 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | `bash` | 在工作目录下执行命令 |
 | `todowrite` | 维护任务清单 |
 | `question` | 在歧义或实现取舍影响任务方向时请求用户确认 |
+| `websearch` | 使用已配置厂商检索网页 |
+| `webfetch` | 使用已配置厂商读取单个网页 |
 
 `glob` 与 `grep` 默认跳过 `node_modules`、`.git`、`dist` 等目录，`grep` 另外跳过二进制文件与超过 2MB 的文件。超长工具输出写入 `<EASYCODE_DATA_DIR>/tool-output/`，消息中保留落盘路径。
+
+`websearch` 与 `webfetch` 的配置、HTTP、厂商映射和工具实现集中在 `packages/core/src/tool/builtin/web`，通过 `createBuiltinTools()` 按普通内置工具注册。DeepSeek 使用 Search/Fetch，GLM 使用 Web Search/Reader，Tavily 使用 Search/Extract；厂商地址固定。工具默认最多返回 20 条搜索结果、30 秒超时和 8 MB 厂商响应，最终进入模型的内容仍经过统一输出截断。
 
 工具调用完成后会写入结构化元数据：副作用类型、失败原因、是否可重试、修改文件路径和验证结果。`bash` 的非零退出码与超时会作为失败返回；测试、类型检查、构建和 lint 类命令会作为验证证据更新任务状态。文件编辑与整体写入使用同目录临时文件加原子替换。
 
@@ -250,7 +263,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 - 单个内置 agent：`build`，单轮任务上限 30 步
 - 模型在 `.env` 中配置，会话内保持一致
-- 八个内置工具，覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
+- 基础工具覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
+- 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
 - 多会话：会话创建时绑定工作目录，之后保持绑定
 - 首轮回答结束后使用一次独立模型请求生成会话标题，失败时回退到输入摘要
 - 会话列表按置顶优先、最近活跃时间倒序排列，支持右键置顶和删除
