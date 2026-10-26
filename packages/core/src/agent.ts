@@ -61,9 +61,9 @@ const BUILTIN_AGENTS: Agent[] = [
     permissions: [
       // 兜底：默认允许
       { action: "*", resource: "*", effect: "allow" },
-      // 联网请求会把查询和 URL 发送给第三方服务，默认每次请求确认
-      { action: "websearch", resource: "*", effect: "ask" },
-      { action: "webfetch", resource: "*", effect: "ask" },
+      // 配置联网凭据即表示允许工具使用第三方服务
+      { action: "websearch", resource: "*", effect: "allow" },
+      { action: "webfetch", resource: "*", effect: "allow" },
       // 结构化文件工具访问工作目录之外的路径时需要用户确认；
       // bash 等工具不会把命令中的路径转换成该 action
       { action: "external_directory", resource: "*", effect: "ask" },
