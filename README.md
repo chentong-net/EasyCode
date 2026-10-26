@@ -188,7 +188,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认裁决为 `ask`。一次调用涉及多个资源时取最严格的结果。
 
-内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认分别按查询词和 URL 请求确认。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
+内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
 
 ### 内置工具
 
