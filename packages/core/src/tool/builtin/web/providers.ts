@@ -34,6 +34,7 @@ export const createSearchService = (
       case "deepseek":
         return searchDeepSeek(options, input, signal)
       case "glm":
+        return searchGlm(options, input, signal)
       case "tavily":
         throw new ToolFailure(`${capability.provider} 搜索适配尚未实现`)
     }
@@ -52,6 +53,7 @@ export const createFetchService = (
       case "deepseek":
         return fetchDeepSeek(options, url, signal)
       case "glm":
+        return fetchGlm(options, url, signal)
       case "tavily":
         throw new ToolFailure(`${capability.provider} 抓取适配尚未实现`)
     }
@@ -116,6 +118,81 @@ const fetchDeepSeek = async (
   }
 }
 
+const searchGlm = async (
+  options: ProviderOptions,
+  input: WebSearchInput,
+  signal: AbortSignal,
+): Promise<WebSearchResponse> => {
+  const raw = await request(options, "/web_search", {
+    search_query: input.query,
+    search_engine: "search_std",
+    search_intent: false,
+    count: input.limit ?? 8,
+    content_size: "medium",
+  }, signal)
+  const payload = record(raw, "GLM")
+  const results = optionalArray(payload.search_result).flatMap((value) => {
+    const item = record(value, "GLM")
+    const url = httpURL(item.link)
+    if (!url) return []
+
+    return [{
+      title: text(item.title),
+      url,
+      summary: text(item.content),
+      publishedAt: date(item.publish_date),
+      siteName: text(item.media),
+      siteIconUrl: httpURL(item.icon),
+      citationRef: text(item.refer),
+    } satisfies WebSearchResult]
+  })
+  const intents = optionalArray(payload.search_intent)
+    .map((value) => text(record(value, "GLM").intent))
+    .filter((value): value is string => value !== undefined)
+  const rewrittenQuery = optionalArray(payload.search_intent)
+    .map((value) => text(record(value, "GLM").keywords))
+    .find((value) => value !== undefined)
+
+  return {
+    provider: "glm",
+    query: input.query,
+    results,
+    ...(rewrittenQuery ? { rewrittenQuery } : {}),
+    ...(intents.length > 0 ? { searchIntent: intents } : {}),
+  }
+}
+
+const fetchGlm = async (
+  options: ProviderOptions,
+  url: string,
+  signal: AbortSignal,
+): Promise<WebFetchResult> => {
+  const raw = await request(options, "/reader", {
+    url,
+    return_format: "markdown",
+    retain_images: false,
+    no_gfm: false,
+    keep_img_data_url: false,
+    with_images_summary: false,
+    with_links_summary: false,
+  }, signal)
+  const payload = record(raw, "GLM")
+  const result = payload.reader_result === undefined
+    ? undefined
+    : record(payload.reader_result, "GLM")
+  const content = result ? text(result.content) : undefined
+  if (!result || !content) throw new ToolFailure("GLM 未能提取网页正文", { kind: "not_found" })
+
+  return {
+    provider: "glm",
+    requestedUrl: url,
+    finalUrl: httpURL(result.url) ?? url,
+    title: text(result.title),
+    content,
+    format: "markdown",
+  }
+}
+
 const request = (
   options: ProviderOptions,
   path: string,
@@ -157,6 +234,8 @@ const array = (value: unknown, provider: string, field: string): unknown[] => {
   if (!Array.isArray(value)) throw new ToolFailure(`${provider} 响应缺少 ${field} 数组`)
   return value
 }
+
+const optionalArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : [])
 
 const text = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined
