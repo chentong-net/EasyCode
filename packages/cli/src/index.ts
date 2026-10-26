@@ -239,6 +239,7 @@ const printHelp = (): void => {
       "环境变量（可写在项目根目录的 .env 中）：OPENAI_BASE_URL / OPENAI_API_KEY /",
       "OPENAI_MODEL / OPENAI_MODEL_CONTEXT_WINDOW / OPENAI_MAX_OUTPUT_TOKENS /",
       "EASYCODE_DATA_DIR / EASYCODE_LOG_LEVEL",
+      "联网：EASYCODE_WEB_SEARCH_API_KEY / EASYCODE_WEB_FETCH_API_KEY（可选）",
       "",
     ].join("\n"),
   )
