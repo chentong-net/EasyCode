@@ -36,7 +36,7 @@ export const createSearchService = (
       case "glm":
         return searchGlm(options, input, signal)
       case "tavily":
-        throw new ToolFailure(`${capability.provider} 搜索适配尚未实现`)
+        return searchTavily(options, input, signal)
     }
   },
 })
@@ -55,7 +55,7 @@ export const createFetchService = (
       case "glm":
         return fetchGlm(options, url, signal)
       case "tavily":
-        throw new ToolFailure(`${capability.provider} 抓取适配尚未实现`)
+        return fetchTavily(options, url, signal)
     }
   },
 })
@@ -188,6 +188,81 @@ const fetchGlm = async (
     requestedUrl: url,
     finalUrl: httpURL(result.url) ?? url,
     title: text(result.title),
+    content,
+    format: "markdown",
+  }
+}
+
+const searchTavily = async (
+  options: ProviderOptions,
+  input: WebSearchInput,
+  signal: AbortSignal,
+): Promise<WebSearchResponse> => {
+  const raw = await request(options, "/search", {
+    query: input.query,
+    max_results: input.limit ?? 8,
+    search_depth: "basic",
+    include_raw_content: false,
+    include_published_date: true,
+    include_images: false,
+    include_favicon: true,
+    include_answer: false,
+  }, signal)
+  const payload = record(raw, "Tavily")
+  const results = array(payload.results, "Tavily", "results").flatMap((value) => {
+    const item = record(value, "Tavily")
+    const url = httpURL(item.url)
+    if (!url) return []
+
+    return [{
+      title: text(item.title),
+      url,
+      snippet: text(item.content),
+      publishedAt: date(item.published_date),
+      siteIconUrl: httpURL(item.favicon),
+      score: number(item.score),
+    } satisfies WebSearchResult]
+  })
+
+  return {
+    provider: "tavily",
+    query: input.query,
+    results,
+  }
+}
+
+const fetchTavily = async (
+  options: ProviderOptions,
+  url: string,
+  signal: AbortSignal,
+): Promise<WebFetchResult> => {
+  const raw = await request(options, "/extract", {
+    urls: [url],
+    format: "markdown",
+    extract_depth: "basic",
+    include_images: false,
+    include_favicon: false,
+  }, signal)
+  const payload = record(raw, "Tavily")
+  const results = optionalArray(payload.results)
+  const resultValue = results.find((value) => text(record(value, "Tavily").url) === url) ?? results[0]
+  const result = resultValue === undefined ? undefined : record(resultValue, "Tavily")
+  const content = result ? text(result.raw_content) : undefined
+  if (!result || !content) {
+    const failures = optionalArray(payload.failed_results)
+    const failure = failures
+      .map((value) => record(value, "Tavily"))
+      .find((item) => text(item.url) === url)
+    throw new ToolFailure(
+      text(failure?.error) ?? "Tavily 未能提取网页正文",
+      { kind: "not_found" },
+    )
+  }
+
+  return {
+    provider: "tavily",
+    requestedUrl: url,
+    finalUrl: httpURL(result.url) ?? url,
     content,
     format: "markdown",
   }
