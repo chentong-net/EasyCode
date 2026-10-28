@@ -77,6 +77,7 @@ export interface EasyCodeStore {
   send(text: string): Promise<void>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
+  refreshSessions(): void
   clearError(): void
 }
 
@@ -512,6 +513,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   )
 
   const clearError = useCallback(() => setError(undefined), [])
+  const refreshSessions = useCallback(() => setSessionListToken((token) => token + 1), [])
 
   /* ---------------------------------------------------------------------- */
   /* 派生数据                                                                */
@@ -550,6 +552,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     send,
     interrupt,
     replyPermission,
+    refreshSessions,
     clearError,
   }
 }
