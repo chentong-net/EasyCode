@@ -28,6 +28,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
   const [renameDraft, setRenameDraft] = useState("")
   const menuRef = useRef<HTMLDivElement>(null)
   const renameTarget = useRef<string | undefined>(undefined)
+  const knownWorkspaceIDs = useRef<Set<string> | undefined>(undefined)
   const menuSession =
     menu?.kind === "session" ? store.allSessions.find((session) => session.id === menu.sessionID) : undefined
   const menuWorkspace =
@@ -55,15 +56,30 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
   }, [menu])
 
   useEffect(() => {
-    const activeID = workspace.activeWorkspace?.id
-    if (activeID === undefined) return
-    setCollapsed((previous) => {
-      if (!previous.has(activeID)) return previous
-      const next = new Set(previous)
-      next.delete(activeID)
+    const ids = new Set(workspace.workspaces.map((item) => item.id))
+    const previous = knownWorkspaceIDs.current
+    knownWorkspaceIDs.current = ids
+    setCollapsed((current) => {
+      const next = new Set<string>()
+      for (const id of ids) {
+        if (previous === undefined || !previous.has(id) || current.has(id)) next.add(id)
+      }
       return next
     })
-  }, [workspace.activeWorkspace?.id])
+  }, [workspace.workspaces])
+
+  useEffect(() => {
+    const directory = store.currentSession?.directory
+    if (directory === undefined) return
+    const workspaceID = workspace.workspaces.find((item) => item.directory === directory)?.id
+    if (workspaceID === undefined) return
+    setCollapsed((current) => {
+      if (!current.has(workspaceID)) return current
+      const next = new Set(current)
+      next.delete(workspaceID)
+      return next
+    })
+  }, [store.currentSession?.directory, workspace.workspaces])
 
   const toggleWorkspace = (workspaceID: string): void => {
     setCollapsed((previous) => {
@@ -74,8 +90,18 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     })
   }
 
+  const selectWorkspace = (workspaceID: string): void => {
+    workspace.selectWorkspace(workspaceID)
+    setCollapsed((current) => {
+      if (!current.has(workspaceID)) return current
+      const next = new Set(current)
+      next.delete(workspaceID)
+      return next
+    })
+  }
+
   const selectSession = (session: Session, workspaceID: string): void => {
-    if (workspace.activeWorkspace?.id !== workspaceID) workspace.selectWorkspace(workspaceID)
+    if (workspace.activeWorkspace?.id !== workspaceID) selectWorkspace(workspaceID)
     store.selectSession(session.id)
   }
 
@@ -145,7 +171,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
 
         {workspace.workspaces.map((item) => {
           const sessions = sessionsByDirectory.get(item.directory) ?? []
-          const isCollapsed = collapsed.has(item.id)
+          const isCollapsed = knownWorkspaceIDs.current === undefined || collapsed.has(item.id)
           const isActive = item.id === workspace.activeWorkspace?.id
           return (
             <section key={item.id} className={`workspace-group${isActive ? " workspace-group-active" : ""}`}>
@@ -174,13 +200,13 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
                   role="button"
                   tabIndex={0}
                   onClick={() => {
-                    if (renamingWorkspaceID !== item.id) workspace.selectWorkspace(item.id)
+                    if (renamingWorkspaceID !== item.id) selectWorkspace(item.id)
                   }}
                   onKeyDown={(event) => {
                     if (renamingWorkspaceID === item.id) return
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault()
-                      workspace.selectWorkspace(item.id)
+                      selectWorkspace(item.id)
                     }
                   }}
                   title={item.directory}
