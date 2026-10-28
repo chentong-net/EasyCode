@@ -473,7 +473,7 @@ pre {
 .thread-viewport {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 12px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -522,6 +522,7 @@ pre {
 }
 
 .message-assistant {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -559,16 +560,22 @@ pre {
 
 /* 消息操作：平时很淡，鼠标移上去才明显，避免干扰正文阅读 */
 .message-actions {
+  position: absolute;
+  right: 0;
+  bottom: -30px;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 2px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.12s ease;
 }
 
 .message:hover .message-actions,
 .message:focus-within .message-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .message-action {
