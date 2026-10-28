@@ -12,6 +12,7 @@ import {
   PromptRequest,
   ProtocolError,
   RenameWorkspaceRequest,
+  RenameSessionRequest,
   AFTER_QUERY_PARAM,
   AUTH_HEADER,
   type HealthResponse,
@@ -186,6 +187,11 @@ const handleRequest = async (
       sendJSON(res, 200, { ok: true })
       return
     }
+    if (method === "PATCH") {
+      const body = parseBody(RenameSessionRequest, await readJSON(req))
+      sendJSON(res, 200, await core.sessions.rename(sessionID, body.title))
+      return
+    }
     throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
   }
 
@@ -309,6 +315,7 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.sessions()}`,
   `POST ${Endpoints.sessions()}`,
   `GET  ${Endpoints.session(":id")}`,
+  `PATCH ${Endpoints.renameSession(":id")}`,
   `DELETE ${Endpoints.session(":id")}`,
   `POST ${Endpoints.pinSession(":id")}`,
   `GET  ${Endpoints.messages(":id")}`,
