@@ -10,6 +10,9 @@
 /** 会话语义标识，形如 `ses_ab12cd...` */
 export type SessionID = string
 
+/** 工作区语义标识，形如 `ws_ab12cd...` */
+export type WorkspaceID = string
+
 /** 消息标识，形如 `msg_ab12cd...` */
 export type MessageID = string
 

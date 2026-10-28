@@ -15,6 +15,9 @@ export const createID = (prefix: string): string => `${prefix}_${randomSegment(1
 /** 会话 ID */
 export const newSessionID = (): string => createID("ses")
 
+/** 工作区 ID */
+export const newWorkspaceID = (): string => createID("ws")
+
 /** 消息 ID */
 export const newMessageID = (): string => createID("msg")
 
