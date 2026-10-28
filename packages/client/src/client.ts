@@ -1,5 +1,6 @@
 import {
   AgentListResponse,
+  CreateWorkspaceRequest,
   Endpoints,
   HealthResponse,
   MessageListResponse,
@@ -7,8 +8,11 @@ import {
   PinSessionRequest,
   PromptResponse,
   ProtocolError,
+  RenameWorkspaceRequest,
   SessionListResponse,
   SessionResponse,
+  WorkspaceListResponse,
+  WorkspaceResponse,
   withAfter,
   type AgentInfo,
   type CreateSessionRequest,
@@ -21,6 +25,7 @@ import {
   type PermissionReply,
   type PermissionRequest,
   type Session,
+  type Workspace,
 } from "@easycode/schema"
 import { z, type ZodTypeAny } from "zod"
 
@@ -74,6 +79,11 @@ export interface EasyCodeClient {
   health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
+  workspaces: {
+    list(signal?: AbortSignal): Promise<Workspace[]>
+    add(input: CreateWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
+    rename(workspaceID: string, input: RenameWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
+  }
   sessions: {
     list(signal?: AbortSignal): Promise<Session[]>
     create(input: CreateSessionRequest, signal?: AbortSignal): Promise<Session>
@@ -113,6 +123,13 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
   return {
     health: (signal) => get(transport, Endpoints.health(), HealthResponse, signal),
     agents: (signal) => get(transport, Endpoints.agents(), AgentListResponse, signal),
+
+    workspaces: {
+      list: (signal) => get(transport, Endpoints.workspaces(), WorkspaceListResponse, signal),
+      add: (input, signal) => post(transport, Endpoints.workspaces(), input, WorkspaceResponse, signal),
+      rename: (workspaceID, input, signal) =>
+        patch(transport, Endpoints.workspace(workspaceID), input, WorkspaceResponse, signal),
+    },
 
     sessions: {
       list: (signal) => get(transport, Endpoints.sessions(), SessionListResponse, signal),
@@ -173,6 +190,20 @@ const post = async <T extends ZodTypeAny>(
 ): Promise<z.infer<T>> => {
   const raw = await requestJSON<unknown>(transport, "POST", path, {
     ...(body === undefined ? {} : { body }),
+    ...(signal === undefined ? {} : { signal }),
+  })
+  return parseResponse(schema, raw, path)
+}
+
+const patch = async <T extends ZodTypeAny>(
+  transport: TransportOptions,
+  path: string,
+  body: unknown,
+  schema: T,
+  signal?: AbortSignal,
+): Promise<z.infer<T>> => {
+  const raw = await requestJSON<unknown>(transport, "PATCH", path, {
+    body,
     ...(signal === undefined ? {} : { signal }),
   })
   return parseResponse(schema, raw, path)
