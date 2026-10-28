@@ -244,9 +244,9 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
       <main className="chat">
         <ChatHeader title={title} />
         <div className="placeholder">
-          <p className="placeholder-text">还没有工作目录</p>
+          <p className="placeholder-text">还没有工作区</p>
           <button type="button" className="btn" onClick={() => void workspace.select()} disabled={workspace.selecting}>
-            {workspace.selecting ? "请在弹出的窗口中选择…" : "选择工作目录"}
+            {workspace.selecting ? "请在弹出的窗口中选择…" : "添加工作区"}
           </button>
         </div>
       </main>
