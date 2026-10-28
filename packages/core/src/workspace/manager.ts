@@ -27,6 +27,7 @@ export interface WorkspaceManagerDeps {
 export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceManager => {
   const logger = deps.logger ?? createLogger("workspace")
   const store = createWorkspaceStore(deps.dataDir)
+  const defaultDirectory = resolve(expandHome("~/easycode"))
   let writes = Promise.resolve()
 
   const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -39,7 +40,18 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
   }
 
   const synchronizeSessions = async (): Promise<Workspace[]> => {
-    const workspaces = await store.list()
+    const stored = await store.list()
+    let changed = false
+    const workspaces = stored.map((workspace) => {
+      if (
+        workspace.directory !== defaultDirectory ||
+        workspace.name !== (basename(workspace.directory) || workspace.directory)
+      ) {
+        return workspace
+      }
+      changed = true
+      return { ...workspace, name: "默认工作区" }
+    })
     const knownDirectories = new Set(workspaces.map((workspace) => workspace.directory))
     const additions: Workspace[] = []
 
@@ -48,17 +60,17 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
       knownDirectories.add(session.directory)
       additions.push({
         id: newWorkspaceID(),
-        name: basename(session.directory) || session.directory,
+        name: workspaceName(session.directory, defaultDirectory),
         directory: session.directory,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
       })
     }
 
-    if (additions.length === 0) return workspaces
+    if (additions.length === 0 && !changed) return workspaces
     const merged = [...workspaces, ...additions]
     await store.write(merged)
-    logger.info("已从既有会话补建工作区", { count: additions.length })
+    if (additions.length > 0) logger.info("已从既有会话补建工作区", { count: additions.length })
     return merged
   }
 
@@ -79,7 +91,7 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
       const now = Date.now()
       const workspace: Workspace = {
         id: newWorkspaceID(),
-        name: basename(directory) || directory,
+        name: workspaceName(directory, defaultDirectory),
         directory,
         createdAt: now,
         updatedAt: now,
@@ -117,3 +129,6 @@ const validateDirectory = async (input: string): Promise<string> => {
   if (!metadata.isDirectory()) throw new Error(`工作区路径不是目录：${directory}`)
   return directory
 }
+
+const workspaceName = (directory: string, defaultDirectory: string): string =>
+  directory === defaultDirectory ? "默认工作区" : basename(directory) || directory
