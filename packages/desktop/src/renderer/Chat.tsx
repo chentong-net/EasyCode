@@ -1,10 +1,10 @@
 import type { Message, PermissionRequest, Usage } from "@easycode/schema"
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Composer } from "./composer"
 import { formatTokens, usageTotal } from "./format"
 import { MessageView } from "./message-view"
-import type { EasyCodeStore } from "./store"
+import { type CompactionViewState, type EasyCodeStore } from "./store"
 import type { WorkspaceState } from "./workspace"
 
 const PermissionCard = ({
@@ -67,43 +67,99 @@ const ContextRing = ({ ratio, hasValue }: { ratio: number; hasValue: boolean }) 
 
 interface UsageView {
   size: number | undefined
-  quota: number | undefined
   used: number | undefined
   ratio: number | undefined
 }
 
-const buildUsageView = (size: number | undefined, reserve: number | undefined, usage: Usage | undefined): UsageView => {
-  const quota = size !== undefined && reserve !== undefined && reserve < size ? size - reserve : undefined
+const buildUsageView = (size: number | undefined, usage: Usage | undefined): UsageView => {
   const used = usage === undefined ? undefined : usageTotal(usage)
-  const ratio = used !== undefined && quota !== undefined && quota > 0 ? Math.min(1, used / quota) : undefined
-  return { size, quota, used, ratio }
+  const ratio = used !== undefined && size !== undefined && size > 0 ? Math.min(1, used / size) : undefined
+  return { size, used, ratio }
 }
 
 const StatusBar = ({ store, contextUsage }: { store: EasyCodeStore; contextUsage: Usage | undefined }) => {
-  const view = buildUsageView(store.contextWindow, store.maxOutputTokens, contextUsage)
+  const now = useMinuteClock(store.compaction)
+  const view = buildUsageView(store.contextWindow, contextUsage)
   const windowLabel = view.size === undefined ? "—" : formatTokens(view.size)
-  const quotaLabel = view.quota === undefined ? "—" : formatTokens(view.quota)
-
+  const percent = view.ratio === undefined ? undefined : Math.round(view.ratio * 100)
   const usageLine =
-    view.ratio !== undefined && view.used !== undefined
-      ? `上下文 ${formatTokens(view.used)} / 额度 ${quotaLabel}（窗口 ${windowLabel}）`
-      : `上下文 — / 额度 ${quotaLabel}（窗口 ${windowLabel}）`
-
-  const statusLine = !store.connected
-    ? "与服务端的连接已断开，正在自动重连…"
-    : view.ratio !== undefined
-      ? "自动 compaction（压缩）已就绪"
-      : `自动 compaction（压缩）已就绪：窗口 ${windowLabel}，发第一条消息后这里显示占用`
+    view.used !== undefined && percent !== undefined
+      ? `上下文 ${formatTokens(view.used)} / ${windowLabel}（${percent}%）`
+      : `上下文 — / ${windowLabel}`
+  const compaction = describeCompaction(store.compaction, now)
+  const statusLine = store.connected ? compaction.text : "与服务端的连接已断开，正在自动重连…"
+  const statusTone = store.connected ? compaction.tone : "warn"
 
   return (
-    <div className="status-bar">
+    <div
+      className="status-bar"
+      title={
+        store.maxOutputTokens === undefined
+          ? undefined
+          : `单轮输出预留 ${formatTokens(store.maxOutputTokens)}；上下文压缩还会保留额外安全余量`
+      }
+    >
       <ContextRing ratio={view.ratio ?? 0} hasValue={view.ratio !== undefined} />
       <div className="status-text">
         <div className="status-usage">{usageLine}</div>
-        <div className={`status-note${store.connected ? "" : " status-note-warn"}`}>{statusLine}</div>
+        <div className={`status-note status-note-${statusTone}`} role="status" aria-live="polite">
+          {store.connected && compaction.tone !== "normal" && (
+            <span className={`compaction-dot compaction-dot-${compaction.tone}`} aria-hidden />
+          )}
+          <span>{statusLine}</span>
+        </div>
       </div>
     </div>
   )
+}
+
+type StatusTone = "normal" | "running" | "degraded" | "failed" | "warn"
+
+const describeCompaction = (
+  state: CompactionViewState,
+  now: number,
+): { text: string; tone: StatusTone } => {
+  switch (state.phase) {
+    case "idle":
+      return { text: "暂无上下文压缩记录", tone: "normal" }
+    case "running":
+      return { text: "正在压缩上下文", tone: "running" }
+    case "failed":
+      return { text: `上下文压缩失败：${formatAbsoluteTime(state.completedAt)}`, tone: "failed" }
+    case "completed": {
+      if (state.degraded) {
+        return {
+          text: `上次上下文压缩：${formatAbsoluteTime(state.completedAt)}（模型摘要不可用，触发降级策略）`,
+          tone: "degraded",
+        }
+      }
+      const age = Math.max(0, now - state.completedAt)
+      if (age < 60_000) return { text: "刚刚完成上下文压缩", tone: "normal" }
+      if (age < 3_600_000) {
+        return { text: `${Math.max(1, Math.floor(age / 60_000))} 分钟前完成上下文压缩`, tone: "normal" }
+      }
+      return { text: `上次上下文压缩：${formatAbsoluteTime(state.completedAt)}`, tone: "normal" }
+    }
+  }
+}
+
+const useMinuteClock = (state: CompactionViewState): number => {
+  const [now, setNow] = useState(Date.now)
+
+  useEffect(() => {
+    if (state.phase !== "completed" || state.degraded) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [state])
+
+  return now
+}
+
+const formatAbsoluteTime = (timestamp: number): string => {
+  const date = new Date(timestamp)
+  const pad = (value: number): string => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 const useContextUsage = (messages: Message[]): Usage | undefined => {
