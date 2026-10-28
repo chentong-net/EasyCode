@@ -88,6 +88,13 @@ export const PinWorkspaceRequest = z.object({
 
 export type PinWorkspaceRequest = z.infer<typeof PinWorkspaceRequest>
 
+/** 删除工作区后返回被一并删除的会话数量。 */
+export const DeleteWorkspaceResponse = z.object({
+  deletedSessions: z.number().int().nonnegative(),
+})
+
+export type DeleteWorkspaceResponse = z.infer<typeof DeleteWorkspaceResponse>
+
 /**
  * 新建会话的默认工作目录。
  *

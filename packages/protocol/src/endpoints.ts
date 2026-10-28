@@ -52,6 +52,9 @@ export const Endpoints = {
   /** 单个工作区：PATCH 重命名 */
   workspace: (workspaceID: string): string => workspacePath(workspaceID),
 
+  /** 删除工作区；磁盘目录不会被删除 */
+  deleteWorkspace: (workspaceID: string): string => workspacePath(workspaceID),
+
   /** 置顶或取消置顶工作区 */
   pinWorkspace: (workspaceID: string): string => `${workspacePath(workspaceID)}/pin`,
 
