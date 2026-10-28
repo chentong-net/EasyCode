@@ -169,8 +169,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     }
 
     const controller = new AbortController()
-    const workspaceChanged = loadedWorkspace.current !== undefined && loadedWorkspace.current !== workspace
-    if (workspaceChanged) keepNoSelection.current = false
     const initialLoad = loadedWorkspace.current !== workspace
     if (initialLoad) setLoading(true)
 
