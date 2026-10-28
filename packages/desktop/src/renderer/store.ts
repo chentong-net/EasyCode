@@ -163,7 +163,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       setSessions([])
       setLoading(false)
       loadedWorkspace.current = undefined
-      keepNoSelection.current = false
       return
     }
 
