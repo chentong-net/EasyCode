@@ -143,6 +143,14 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
   ): Promise<CompactionOutcome> => {
     const state = input.handle.state
     const messageID = newMessageID()
+    await input.handle.append({
+      type: "compaction.started",
+      sessionID: input.handle.id,
+      timestamp: Date.now(),
+      compactionID: messageID,
+      reason,
+      beforeTokens,
+    })
     const backup = await backups.prepare({
       id: messageID,
       sessionID: input.handle.id,
