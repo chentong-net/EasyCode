@@ -71,8 +71,6 @@ export interface EasyCodeStore {
   selectSession(sessionID: string): void
   /** 进入未持久化的新会话页面；首次发送时才创建会话。 */
   startNewSession(): void
-  /** 在当前工作目录下新建会话 */
-  createSession(): Promise<void>
   pinSession(sessionID: string, pinned: boolean): Promise<void>
   deleteSession(sessionID: string): Promise<void>
   send(text: string): Promise<void>
@@ -412,19 +410,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setCurrentSessionID(undefined)
   }, [])
 
-  const createSession = useCallback(async () => {
-    if (workspace === undefined) return
-    try {
-      const session = await client.sessions.create({ directory: workspace })
-      keepNoSelection.current = false
-      // 列表与当前会话同时更新：不用等下一次拉取，点完立刻就能用
-      setSessions((previous) => sortSessions([session, ...previous]))
-      setCurrentSessionID(session.id)
-    } catch (cause) {
-      setError(describeError(cause))
-    }
-  }, [client, workspace])
-
   const pinSession = useCallback(
     async (sessionID: string, pinned: boolean) => {
       try {
@@ -459,14 +444,23 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
   const send = useCallback(
     async (text: string) => {
-      if (activeSessionID === undefined) return
+      if (workspace === undefined) return
       try {
-        await client.sessions.prompt(activeSessionID, { text })
+        let sessionID = activeSessionID
+        if (sessionID === undefined) {
+          const session = await client.sessions.create({ directory: workspace })
+          keepNoSelection.current = false
+          setSessions((previous) => sortSessions([session, ...previous]))
+          setCurrentSession(session)
+          setCurrentSessionID(session.id)
+          sessionID = session.id
+        }
+        await client.sessions.prompt(sessionID, { text })
       } catch (cause) {
         setError(describeError(cause))
       }
     },
-    [client, activeSessionID],
+    [activeSessionID, client.sessions, workspace],
   )
 
   const interrupt = useCallback(async () => {
@@ -528,7 +522,6 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     maxOutputTokens,
     selectSession,
     startNewSession,
-    createSession,
     pinSession,
     deleteSession,
     send,
