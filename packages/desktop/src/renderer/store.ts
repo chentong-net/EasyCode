@@ -71,6 +71,7 @@ export interface EasyCodeStore {
   selectSession(sessionID: string): void
   /** 进入未持久化的新会话页面；首次发送时才创建会话。 */
   startNewSession(): void
+  renameSession(sessionID: string, title: string): Promise<Session | undefined>
   pinSession(sessionID: string, pinned: boolean): Promise<void>
   deleteSession(sessionID: string): Promise<void>
   send(text: string): Promise<void>
@@ -429,6 +430,23 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     [client, activeSessionID],
   )
 
+  const renameSession = useCallback(
+    async (sessionID: string, title: string): Promise<Session | undefined> => {
+      try {
+        const updated = await client.sessions.rename(sessionID, { title })
+        setSessions((previous) =>
+          sortSessions(previous.map((session) => (session.id === sessionID ? updated : session))),
+        )
+        if (activeSessionID === sessionID) setCurrentSession(updated)
+        return updated
+      } catch (cause) {
+        setError(describeError(cause))
+        return undefined
+      }
+    },
+    [activeSessionID, client.sessions],
+  )
+
   const deleteSession = useCallback(
     async (sessionID: string) => {
       try {
@@ -526,6 +544,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     maxOutputTokens,
     selectSession,
     startNewSession,
+    renameSession,
     pinSession,
     deleteSession,
     send,
