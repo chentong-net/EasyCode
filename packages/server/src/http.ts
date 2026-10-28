@@ -21,7 +21,7 @@ const MAX_BODY_BYTES = 1024 * 1024
 export const commonHeaders = (): Record<string, string> => ({
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "content-type, x-easycode-token",
-  "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+  "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
   "cache-control": "no-store",
 })
 
