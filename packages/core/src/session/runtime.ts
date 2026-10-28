@@ -139,6 +139,17 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     let recoveredTools = 0
     let recoveredMessages = 0
 
+    if (handle.state.activeCompactionID !== undefined) {
+      const compactionID = handle.state.activeCompactionID
+      await handle.append({
+        type: "compaction.failed",
+        sessionID: handle.id,
+        timestamp: now,
+        compactionID,
+        reason: "error",
+      })
+    }
+
     // 待审批请求：进程重启后已经没有代码在等待它，只能作废
     for (const request of [...handle.state.pendingPermissions.values()]) {
       await handle.append({

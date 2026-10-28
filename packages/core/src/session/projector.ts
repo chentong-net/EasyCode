@@ -32,6 +32,8 @@ export interface ProjectedState {
   task: TaskState | undefined
   /** 由持久事件投影出的最近回合运行状态。 */
   running: boolean
+  /** 已开始但尚未结束的上下文压缩。 */
+  activeCompactionID: string | undefined
   /** 已消费的最大事件序号 */
   lastSeq: number
   /** 按 ID 索引消息，避免查找 part 时线性扫描 */
@@ -55,6 +57,7 @@ export const createProjectedState = (session: Session): ProjectedState => ({
   pendingPermissions: new Map(),
   task: undefined,
   running: false,
+  activeCompactionID: undefined,
   lastSeq: 0,
   messageIndex: new Map(),
   messageSeq: new Map(),
@@ -186,6 +189,7 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
     }
 
     case "compaction.ended":
+      state.activeCompactionID = undefined
       pushMessage(
         state,
         {
@@ -200,8 +204,11 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       break
 
     case "compaction.started":
+      state.activeCompactionID = event.compactionID
+      break
+
     case "compaction.failed":
-      // 压缩生命周期只供运行状态展示，不产生聊天消息。
+      state.activeCompactionID = undefined
       break
 
     case "context.updated":
