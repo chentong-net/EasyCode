@@ -189,6 +189,13 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
         summarizedMessages: head.length,
         keptMessages: tail.length,
       })
+      await input.handle.append({
+        type: "compaction.failed",
+        sessionID: input.handle.id,
+        timestamp: Date.now(),
+        compactionID: messageID,
+        reason: "nothing_to_compact",
+      })
       return {
         status: "failed",
         reason: "nothing_to_compact",
@@ -209,6 +216,13 @@ export const createCompactionManager = (deps: CompactionDeps): CompactionManager
         outcomeReason: "aborted",
         summarizedMessages: subject.length,
         keptMessages: tail.length,
+      })
+      await input.handle.append({
+        type: "compaction.failed",
+        sessionID: input.handle.id,
+        timestamp: Date.now(),
+        compactionID: messageID,
+        reason: "aborted",
       })
       return {
         status: "failed",
