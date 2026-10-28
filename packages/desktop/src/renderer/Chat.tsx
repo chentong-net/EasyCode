@@ -267,8 +267,8 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
         <div className="placeholder">
           <p className="placeholder-text">{store.loading ? "正在加载…" : "还没有会话"}</p>
           {!store.loading && (
-            <button type="button" className="btn" onClick={() => void store.createSession()}>
-              新建会话
+            <button type="button" className="btn" onClick={store.startNewSession}>
+              新会话
             </button>
           )}
         </div>

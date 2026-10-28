@@ -113,7 +113,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
         <button
           type="button"
           className="new-session-button"
-          onClick={() => void store.createSession()}
+          onClick={store.startNewSession}
           disabled={!hasWorkspace}
           title={hasWorkspace ? "在当前工作区中新建会话" : "请先添加工作区"}
         >

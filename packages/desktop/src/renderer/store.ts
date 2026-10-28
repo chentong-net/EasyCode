@@ -69,6 +69,8 @@ export interface EasyCodeStore {
   maxOutputTokens: number | undefined
 
   selectSession(sessionID: string): void
+  /** 进入未持久化的新会话页面；首次发送时才创建会话。 */
+  startNewSession(): void
   /** 在当前工作目录下新建会话 */
   createSession(): Promise<void>
   pinSession(sessionID: string, pinned: boolean): Promise<void>
@@ -404,6 +406,12 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setCurrentSessionID(sessionID)
   }, [])
 
+  const startNewSession = useCallback(() => {
+    keepNoSelection.current = true
+    setError(undefined)
+    setCurrentSessionID(undefined)
+  }, [])
+
   const createSession = useCallback(async () => {
     if (workspace === undefined) return
     try {
@@ -519,6 +527,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     contextWindow,
     maxOutputTokens,
     selectSession,
+    startNewSession,
     createSession,
     pinSession,
     deleteSession,
