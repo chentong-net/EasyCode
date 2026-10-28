@@ -181,10 +181,12 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
 
 export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: WorkspaceState }) => {
   const contextUsage = useMemo(() => useContextUsage(store.messages), [store.messages])
+  const title = store.currentSession?.title ?? "EasyCode"
 
   if (workspace.directory === undefined) {
     return (
       <main className="chat">
+        <ChatHeader title={title} />
         <div className="placeholder">
           <p className="placeholder-text">还没有工作目录</p>
           <button type="button" className="btn" onClick={() => void workspace.select()} disabled={workspace.selecting}>
@@ -197,10 +199,15 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
 
   if (store.currentSessionID === undefined) {
     if (!store.loading && store.sessions.length > 0) {
-      return <main className="chat" aria-label="未选择会话" />
+      return (
+        <main className="chat" aria-label="未选择会话">
+          <ChatHeader title={title} />
+        </main>
+      )
     }
     return (
       <main className="chat">
+        <ChatHeader title={title} />
         <div className="placeholder">
           <p className="placeholder-text">{store.loading ? "正在加载…" : "还没有会话"}</p>
           {!store.loading && (
@@ -215,8 +222,15 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
 
   return (
     <main className="chat">
+      <ChatHeader title={title} />
       <Conversation store={store} />
       <StatusBar store={store} contextUsage={contextUsage} />
     </main>
   )
 }
+
+const ChatHeader = ({ title }: { title: string }) => (
+  <header className="chat-header">
+    <span className="chat-header-title">{title}</span>
+  </header>
+)

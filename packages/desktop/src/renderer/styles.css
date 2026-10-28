@@ -28,9 +28,8 @@
   --warn: #d97706;
   --radius: 10px;
   --radius-lg: 22px;
-  --title-bar-height: 32px;
-  --sidebar-width: 272px;
-  --content-max-width: 720px;
+  --sidebar-width: 284px;
+  --content-max-width: 760px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
     sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -98,33 +97,11 @@ pre {
   overflow: hidden;
 }
 
-/*
- * 自绘标题栏。
- *
- * 它承担三件事：显示标题、作为窗口拖拽区、为 macOS 的红绿灯按钮留白。
- * 高度刻意贴近系统标题栏：标题文字要和红绿灯按钮处在同一条水平线上，
- * 太高会让两者错开，看上去像没对齐。
- */
-.title-bar {
-  display: flex;
-  align-items: center;
-  flex: none;
-  height: var(--title-bar-height);
-  padding: 0 16px;
-  background: var(--bg);
-  -webkit-app-region: drag;
-}
-
-.title-bar-text {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-}
-
 .app-body {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;
   flex: 1;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -139,12 +116,39 @@ pre {
   border-right: 1px solid var(--border);
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  height: 52px;
+  padding: 0 18px;
+  -webkit-app-region: drag;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  background: var(--text);
+  border-radius: 8px;
+  color: var(--bg);
+}
+
+.brand-name {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+}
+
 .sidebar-top {
   display: flex;
   flex-direction: column;
   gap: 8px;
   flex: none;
-  padding: 12px 12px 10px;
+  padding: 8px 12px 10px;
 }
 
 .workspace-section-header {
@@ -440,6 +444,25 @@ pre {
   min-width: 0;
   min-height: 0;
   background: var(--bg);
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 52px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+.chat-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .placeholder {
@@ -1132,6 +1155,6 @@ pre {
  * 留白按红绿灯的实际宽度给：再宽一点标题就和按钮脱开了，反倒显得标题是浮着的。
  * Windows 与 Linux 没有这个装饰，从边缘起排即可。
  */
-[data-platform="darwin"] .title-bar {
+[data-platform="darwin"] .sidebar-brand {
   padding-left: 80px;
 }

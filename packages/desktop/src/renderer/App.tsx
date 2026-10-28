@@ -11,8 +11,8 @@ import { useWorkspaces } from "./workspace"
  * 会话状态来自 useEasyCode，子组件直接消费领域消息和操作，不再经过额外的
  * UI runtime 适配层。
  *
- * 标题栏是自绘的（macOS 上系统标题栏被隐藏）：它同时承担窗口拖拽区的职责，
- * 并且要给左上角的红绿灯按钮让出位置，用样式按平台区分（见 styles.css）。
+ * 窗口标题栏由左右两侧的顶部区域共同承担，避免在主界面之外再占一条独立横栏。
+ * 侧边栏顶部同时要给 macOS 左上角的红绿灯按钮留出空间。
  */
 export const App = ({ client }: { client: EasyCodeClient }) => {
   const workspace = useWorkspaces(client)
@@ -22,10 +22,6 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
   return (
     <>
       <div className="app">
-        <header className="title-bar">
-          <span className="title-bar-text">EasyCode</span>
-        </header>
-
         <div className="app-body">
           <Sidebar store={store} workspace={workspace} />
           <Chat store={store} workspace={workspace} />

@@ -1,5 +1,16 @@
 import type { Session } from "@easycode/schema"
-import { ChevronDown, ChevronRight, Folder, FolderPlus, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderPlus,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { toDisplayPath } from "./bridge"
@@ -95,6 +106,13 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
 
   return (
     <aside className="sidebar">
+      <div className="sidebar-brand">
+        <span className="brand-mark" aria-hidden>
+          <Sparkles size={16} strokeWidth={2} />
+        </span>
+        <span className="brand-name">EasyCode</span>
+      </div>
+
       <div className="sidebar-top">
         <button
           type="button"
