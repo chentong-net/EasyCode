@@ -1,6 +1,7 @@
 import {
   AgentListResponse,
   CreateWorkspaceRequest,
+  DeleteWorkspaceResponse,
   Endpoints,
   HealthResponse,
   MessageListResponse,
@@ -86,6 +87,7 @@ export interface EasyCodeClient {
     add(input: CreateWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
     rename(workspaceID: string, input: RenameWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
     pin(workspaceID: string, input: PinWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
+    delete(workspaceID: string, signal?: AbortSignal): Promise<{ deletedSessions: number }>
   }
   sessions: {
     list(signal?: AbortSignal): Promise<Session[]>
@@ -135,6 +137,16 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
         patch(transport, Endpoints.workspace(workspaceID), input, WorkspaceResponse, signal),
       pin: (workspaceID, input, signal) =>
         post(transport, Endpoints.pinWorkspace(workspaceID), input, WorkspaceResponse, signal),
+      delete: async (workspaceID, signal) => {
+        const path = Endpoints.deleteWorkspace(workspaceID)
+        const raw = await requestJSON<unknown>(
+          transport,
+          "DELETE",
+          path,
+          signal === undefined ? {} : { signal },
+        )
+        return parseResponse(DeleteWorkspaceResponse, raw, path)
+      },
     },
 
     sessions: {
