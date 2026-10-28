@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises"
+import { mkdir, stat } from "node:fs/promises"
 import { basename, resolve } from "node:path"
 
 import type { Session, Workspace } from "@easycode/schema"
@@ -52,6 +52,19 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
       changed = true
       return { ...workspace, name: "默认工作区" }
     })
+    if (!workspaces.some((workspace) => workspace.directory === defaultDirectory)) {
+      await mkdir(defaultDirectory, { recursive: true })
+      const now = Date.now()
+      workspaces.push({
+        id: newWorkspaceID(),
+        name: "默认工作区",
+        directory: defaultDirectory,
+        createdAt: now,
+        updatedAt: now,
+      })
+      changed = true
+    }
+
     const knownDirectories = new Set(workspaces.map((workspace) => workspace.directory))
     const additions: Workspace[] = []
 
