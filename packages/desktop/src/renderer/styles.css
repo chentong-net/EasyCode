@@ -30,6 +30,7 @@
   --warn: #d97706;
   --radius: 9px;
   --sidebar-width: 284px;
+  --sidebar-scrollbar-width: 10px;
   --content-max-width: 760px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
     sans-serif;
@@ -69,8 +70,8 @@ pre {
 
 /* 滚动条：默认样式在浅色背景上过于突兀 */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--sidebar-scrollbar-width);
+  height: var(--sidebar-scrollbar-width);
 }
 
 ::-webkit-scrollbar-thumb {
@@ -135,7 +136,8 @@ pre {
   flex-direction: column;
   gap: 8px;
   flex: none;
-  padding: 10px 12px 12px;
+  /* 与滚动区 10px 内边距和稳定滚动条 gutter 的总宽度保持一致。 */
+  padding: 10px calc(10px + var(--sidebar-scrollbar-width)) 12px 12px;
 }
 
 .workspace-section-header {
