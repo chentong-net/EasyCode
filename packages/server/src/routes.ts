@@ -3,12 +3,14 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import { calculateCompactionBudget, type Core, type Logger } from "@easycode/core"
 import {
   API_VERSION,
+  CreateWorkspaceRequest,
   CreateSessionRequest,
   Endpoints,
   PinSessionRequest,
   PermissionReplyRequest,
   PromptRequest,
   ProtocolError,
+  RenameWorkspaceRequest,
   AFTER_QUERY_PARAM,
   AUTH_HEADER,
   type HealthResponse,
@@ -111,6 +113,29 @@ const handleRequest = async (
       core.agents.all().map((agent) => ({ id: agent.id, description: agent.description })),
     )
     return
+  }
+
+  if (resource === "workspaces") {
+    if (rest.length === 0) {
+      if (method === "GET") {
+        sendJSON(res, 200, await core.workspaces.list())
+        return
+      }
+      if (method === "POST") {
+        const body = parseBody(CreateWorkspaceRequest, await readJSON(req))
+        sendJSON(res, 201, await core.workspaces.add(body.directory))
+        return
+      }
+      throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+    }
+
+    if (rest.length === 1) {
+      if (method !== "PATCH") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+      const workspaceID = decodeURIComponent(rest[0] as string)
+      const body = parseBody(RenameWorkspaceRequest, await readJSON(req))
+      sendJSON(res, 200, await core.workspaces.rename(workspaceID, body.name))
+      return
+    }
   }
 
   if (resource !== "sessions") {
@@ -267,6 +292,9 @@ const handleFailure = (logger: Logger, req: IncomingMessage, res: ServerResponse
 export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.health()}`,
   `GET  ${Endpoints.agents()}`,
+  `GET  ${Endpoints.workspaces()}`,
+  `POST ${Endpoints.workspaces()}`,
+  `PATCH ${Endpoints.workspace(":id")}`,
   `GET  ${Endpoints.sessions()}`,
   `POST ${Endpoints.sessions()}`,
   `GET  ${Endpoints.session(":id")}`,
