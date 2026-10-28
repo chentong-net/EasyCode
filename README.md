@@ -8,7 +8,7 @@ EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在
 
 | 包 | 职责 | 上游依赖 |
 | --- | --- | --- |
-| `@easycode/schema` | 语义值：会话、消息、事件、工具、权限、用量 | — |
+| `@easycode/schema` | 语义值：工作区、会话、消息、事件、工具、权限、用量 | — |
 | `@easycode/protocol` | 接口契约：端点常量、请求与响应 DTO、错误分类 | schema |
 | `@easycode/core` | Agent 运行时：回合循环、上下文组装、工具执行、权限判定、事件日志 | schema |
 | `@easycode/server` | 把 Core 绑定到 HTTP 与 SSE | core、protocol |
@@ -31,6 +31,7 @@ packages/
       builtin/web/   可选的网页搜索、抓取及其厂商映射
     permission/      权限规则求值
     runner/          回合循环
+    workspace/       工作区注册、目录校验与持久化
   server/src/        HTTP 路由与 SSE
   client/src/        类型化客户端
   cli/src/           命令行
@@ -149,7 +150,7 @@ npm run package --workspace @easycode/desktop
 | 渲染进程 | 自有 React 消息界面，经 HTTP 与 SSE 读取 Core 状态 |
 | sidecar | 由 `utilityProcess` 拉起，内部加载 Core 并在回环地址上启动 HTTP 服务，就绪后把地址写入握手文件 |
 
-服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏由界面自绘，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
+服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，工作区、会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏与侧边栏、会话标题栏合并，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
 
 开发模式下，桌面端读取仓库根目录的 `.env`；打包后的应用读取 Electron `userData` 目录下的 `.env`。
 
@@ -172,7 +173,7 @@ npm run package --workspace @easycode/desktop
 
 ### 事件日志与投影
 
-每个会话对应一份 append-only 的 `events.jsonl`，它是状态的单一事实来源；消息列表与界面展示由 `applyEvent` 投影得到，同一份日志重放所得结果一致。事件分两类：带 `seq` 的持久化事件可通过 `after` 参数补发；`text.delta` 这类瞬时事件经 SSE 推送，用于展示生成过程。
+每个会话对应一份 append-only 的 `events.jsonl`，它是状态的单一事实来源；消息列表与界面展示由 `applyEvent` 投影得到，同一份日志重放所得结果一致。事件分两类：带 `seq` 的持久化事件可通过 `after` 参数补发；`text.delta` 这类瞬时事件经 SSE 推送，用于展示生成过程。上下文压缩另以 `compaction.started`、`compaction.ended` 和 `compaction.failed` 记录完整生命周期，界面据此展示真实的状态文案。
 
 ### 上下文组装与 compaction（压缩）
 
@@ -219,6 +220,9 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | --- | --- | --- |
 | GET | `/api/health` | 服务状态、协议版本、模型 id、上下文窗口与输出预算 |
 | GET | `/api/agents` | 可用 agent 列表 |
+| GET | `/api/workspaces` | 工作区列表 |
+| POST | `/api/workspaces` | 添加工作区，请求体为 `{ directory }` |
+| PATCH | `/api/workspaces/{id}` | 重命名工作区，请求体为 `{ name }` |
 | GET | `/api/sessions` | 会话列表 |
 | POST | `/api/sessions` | 创建会话，请求体为 `{ directory, title? }` |
 | GET | `/api/sessions/{id}` | 会话详情 |
@@ -237,6 +241,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 ```
 <EASYCODE_DATA_DIR>/
+  workspaces.json                   工作区名称与目录注册表
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
   sessions/<会话ID>/context.json    epoch（上下文周期）状态
@@ -265,7 +270,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 模型在 `.env` 中配置，会话内保持一致
 - 基础工具覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
 - 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
-- 多会话：会话创建时绑定工作目录，之后保持绑定
+- 多工作区：桌面端可添加多个本地目录，按工作区展示会话，并支持右键重命名显示名称
+- 多会话：会话创建时绑定工作区目录，之后保持绑定
 - 首轮回答结束后使用一次独立模型请求生成会话标题，失败时回退到输入摘要
 - 会话列表按置顶优先、最近活跃时间倒序排列，支持右键置顶和删除
 - 删除当前会话后保持无选择状态，不自动打开相邻会话
@@ -274,3 +280,4 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 回合具有显式任务阶段、验证门槛、无进展保护和结构化最终结果
 - 步数预算进入任务状态，达到软上限时要求模型精简计划，达到硬上限时以部分完成结果收尾
 - 上下文用量超过阈值时自动执行 compaction（压缩），支持分块摘要、预算收缩和确定性降级
+- 底部状态区展示上下文占用及最近一次压缩结果；正常压缩显示相对时间，降级和失败显示绝对时间
