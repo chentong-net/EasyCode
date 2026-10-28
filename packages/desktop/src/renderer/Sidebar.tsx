@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 
 import { toDisplayPath } from "./bridge"
 import type { EasyCodeStore } from "./store"
-import type { WorkspaceState } from "./workspace"
+import { isDefaultWorkspace, type WorkspaceState } from "./workspace"
 
 type ContextMenu =
   | { kind: "session"; sessionID: string; x: number; y: number }
@@ -161,7 +161,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
                     kind: "workspace",
                     workspaceID: item.id,
                     x: Math.max(8, Math.min(event.clientX, window.innerWidth - 210)),
-                    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 70)),
+                    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 120)),
                   })
                 }}
               >
@@ -291,8 +291,21 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
         >
           <button type="button" role="menuitem" onClick={() => startRename(menuWorkspace.id, menuWorkspace.name)}>
             <Pencil size={14} />
-            重命名工作区
+            重命名
           </button>
+          {!isDefaultWorkspace(menuWorkspace) && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(undefined)
+                void workspace.pin(menuWorkspace.id, menuWorkspace.pinnedAt === undefined)
+              }}
+            >
+              {menuWorkspace.pinnedAt === undefined ? <Pin size={14} /> : <PinOff size={14} />}
+              {menuWorkspace.pinnedAt === undefined ? "置顶" : "取消置顶"}
+            </button>
+          )}
         </div>
       )}
     </aside>
