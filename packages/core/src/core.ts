@@ -11,6 +11,7 @@ import { createSessionManager, type SessionManager } from "./session/runtime.js"
 import { createSessionStore, type SessionStore } from "./session/store.js"
 import { createBuiltinTools } from "./tool/builtin/index.js"
 import { createToolRegistry, type ToolRegistry } from "./tool/registry.js"
+import { createWorkspaceManager, type WorkspaceManager } from "./workspace/manager.js"
 
 /**
  * Core 的组装入口。
@@ -32,6 +33,7 @@ export interface Core {
   hub: EventHub
   agents: AgentRegistry
   sessions: SessionManager
+  workspaces: WorkspaceManager
   permissions: PermissionService
   tools: ToolRegistry
   logger: Logger
@@ -68,6 +70,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   })
 
   const sessions = createSessionManager({ config, store, hub, agents, logger: logger.child("session") })
+  const workspaces = createWorkspaceManager({ dataDir: config.dataDir, logger: logger.child("workspace") })
 
   const runner = createRunner({
     config,
@@ -98,6 +101,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     hub,
     agents,
     sessions,
+    workspaces,
     permissions,
     tools,
     logger,
