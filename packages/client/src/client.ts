@@ -5,6 +5,7 @@ import {
   HealthResponse,
   MessageListResponse,
   PermissionListResponse,
+  PinWorkspaceRequest,
   PinSessionRequest,
   PromptResponse,
   ProtocolError,
@@ -83,6 +84,7 @@ export interface EasyCodeClient {
     list(signal?: AbortSignal): Promise<Workspace[]>
     add(input: CreateWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
     rename(workspaceID: string, input: RenameWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
+    pin(workspaceID: string, input: PinWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
   }
   sessions: {
     list(signal?: AbortSignal): Promise<Session[]>
@@ -129,6 +131,8 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       add: (input, signal) => post(transport, Endpoints.workspaces(), input, WorkspaceResponse, signal),
       rename: (workspaceID, input, signal) =>
         patch(transport, Endpoints.workspace(workspaceID), input, WorkspaceResponse, signal),
+      pin: (workspaceID, input, signal) =>
+        post(transport, Endpoints.pinWorkspace(workspaceID), input, WorkspaceResponse, signal),
     },
 
     sessions: {
