@@ -132,11 +132,17 @@ const handleRequest = async (
     }
 
     if (rest.length === 1) {
-      if (method !== "PATCH") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
       const workspaceID = decodeURIComponent(rest[0] as string)
-      const body = parseBody(RenameWorkspaceRequest, await readJSON(req))
-      sendJSON(res, 200, await core.workspaces.rename(workspaceID, body.name))
-      return
+      if (method === "PATCH") {
+        const body = parseBody(RenameWorkspaceRequest, await readJSON(req))
+        sendJSON(res, 200, await core.workspaces.rename(workspaceID, body.name))
+        return
+      }
+      if (method === "DELETE") {
+        sendJSON(res, 200, await core.workspaces.delete(workspaceID))
+        return
+      }
+      throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
     }
 
     const action = rest[1]
@@ -311,6 +317,7 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.workspaces()}`,
   `POST ${Endpoints.workspaces()}`,
   `PATCH ${Endpoints.workspace(":id")}`,
+  `DELETE ${Endpoints.deleteWorkspace(":id")}`,
   `POST ${Endpoints.pinWorkspace(":id")}`,
   `GET  ${Endpoints.sessions()}`,
   `POST ${Endpoints.sessions()}`,
