@@ -199,6 +199,11 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
       )
       break
 
+    case "compaction.started":
+    case "compaction.failed":
+      // 压缩生命周期只供运行状态展示，不产生聊天消息。
+      break
+
     case "context.updated":
       pushMessage(
         state,

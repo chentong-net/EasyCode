@@ -197,6 +197,23 @@ const MessageEnded = z.object({
   error: z.string().optional(),
 })
 
+/** compaction（压缩）开始：用于让界面展示真实进行状态。 */
+const CompactionStarted = z.object({
+  ...durableEnvelope,
+  type: z.literal("compaction.started"),
+  compactionID: z.string(),
+  reason: z.enum(["automatic", "overflow"]),
+  beforeTokens: z.number().int().nonnegative(),
+})
+
+/** compaction（压缩）失败：没有生成新 checkpoint，旧历史保持不变。 */
+const CompactionFailed = z.object({
+  ...durableEnvelope,
+  type: z.literal("compaction.failed"),
+  compactionID: z.string(),
+  reason: z.enum(["nothing_to_compact", "aborted", "error"]),
+})
+
 /** compaction（压缩）完成：旧历史被这条 checkpoint（检查点）消息替代。 */
 const CompactionEnded = z.object({
   ...durableEnvelope,
@@ -294,6 +311,8 @@ export const DurableEvent = z.discriminatedUnion("type", [
   ToolCalled,
   ToolSettled,
   MessageEnded,
+  CompactionStarted,
+  CompactionFailed,
   CompactionEnded,
   ContextUpdated,
   PermissionAsked,
