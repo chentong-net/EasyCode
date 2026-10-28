@@ -107,6 +107,13 @@ export const PinSessionRequest = z.object({
 
 export type PinSessionRequest = z.infer<typeof PinSessionRequest>
 
+/** 修改会话标题。 */
+export const RenameSessionRequest = z.object({
+  title: z.string().trim().min(1, "会话标题不能为空"),
+})
+
+export type RenameSessionRequest = z.infer<typeof RenameSessionRequest>
+
 export const MessageListResponse = z.array(Message)
 
 export type MessageListResponse = z.infer<typeof MessageListResponse>
