@@ -248,6 +248,24 @@ pre {
   white-space: nowrap;
 }
 
+.workspace-rename-input {
+  flex: 1;
+  min-width: 48px;
+  max-width: 65%;
+  height: 26px;
+  padding: 0 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.workspace-rename-input:focus {
+  border-color: #b8bec7;
+}
+
 .workspace-path {
   min-width: 0;
   overflow: hidden;

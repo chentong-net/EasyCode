@@ -1,23 +1,27 @@
 import type { Session } from "@easycode/schema"
-import { ChevronDown, ChevronRight, Folder, FolderPlus, Pin, PinOff, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, Folder, FolderPlus, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { toDisplayPath } from "./bridge"
 import type { EasyCodeStore } from "./store"
 import type { WorkspaceState } from "./workspace"
 
-interface SessionMenu {
-  sessionID: string
-  x: number
-  y: number
-}
+type ContextMenu =
+  | { kind: "session"; sessionID: string; x: number; y: number }
+  | { kind: "workspace"; workspaceID: string; x: number; y: number }
 
 export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace: WorkspaceState }) => {
   const hasWorkspace = workspace.activeWorkspace !== undefined
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
-  const [menu, setMenu] = useState<SessionMenu | undefined>()
+  const [menu, setMenu] = useState<ContextMenu | undefined>()
+  const [renamingWorkspaceID, setRenamingWorkspaceID] = useState<string | undefined>()
+  const [renameDraft, setRenameDraft] = useState("")
   const menuRef = useRef<HTMLDivElement>(null)
-  const menuSession = menu === undefined ? undefined : store.allSessions.find((session) => session.id === menu.sessionID)
+  const renameTarget = useRef<string | undefined>(undefined)
+  const menuSession =
+    menu?.kind === "session" ? store.allSessions.find((session) => session.id === menu.sessionID) : undefined
+  const menuWorkspace =
+    menu?.kind === "workspace" ? workspace.workspaces.find((item) => item.id === menu.workspaceID) : undefined
   const sessionsByDirectory = useMemo(() => groupSessions(store.allSessions), [store.allSessions])
 
   useEffect(() => {
@@ -71,6 +75,24 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     void store.deleteSession(sessionID)
   }
 
+  const startRename = (workspaceID: string, name: string): void => {
+    setMenu(undefined)
+    renameTarget.current = workspaceID
+    setRenamingWorkspaceID(workspaceID)
+    setRenameDraft(name)
+  }
+
+  const finishRename = async (): Promise<void> => {
+    const workspaceID = renameTarget.current
+    const name = renameDraft.trim()
+    renameTarget.current = undefined
+    setRenamingWorkspaceID(undefined)
+    if (workspaceID === undefined || name.length === 0) return
+    const current = workspace.workspaces.find((item) => item.id === workspaceID)
+    if (current?.name === name) return
+    await workspace.rename(workspaceID, name)
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar-top">
@@ -113,7 +135,18 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
           const isActive = item.id === workspace.activeWorkspace?.id
           return (
             <section key={item.id} className={`workspace-group${isActive ? " workspace-group-active" : ""}`}>
-              <div className="workspace-row">
+              <div
+                className="workspace-row"
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setMenu({
+                    kind: "workspace",
+                    workspaceID: item.id,
+                    x: Math.max(8, Math.min(event.clientX, window.innerWidth - 210)),
+                    y: Math.max(8, Math.min(event.clientY, window.innerHeight - 70)),
+                  })
+                }}
+              >
                 <button
                   type="button"
                   className="workspace-toggle"
@@ -122,16 +155,48 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
                 >
                   {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                 </button>
-                <button
-                  type="button"
+                <div
                   className="workspace-select"
-                  onClick={() => workspace.selectWorkspace(item.id)}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (renamingWorkspaceID !== item.id) workspace.selectWorkspace(item.id)
+                  }}
+                  onKeyDown={(event) => {
+                    if (renamingWorkspaceID === item.id) return
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      workspace.selectWorkspace(item.id)
+                    }
+                  }}
                   title={item.directory}
                 >
                   <Folder size={15} strokeWidth={1.8} className="workspace-icon" />
-                  <span className="workspace-name">{item.name}</span>
+                  {renamingWorkspaceID === item.id ? (
+                    <input
+                      className="workspace-rename-input"
+                      value={renameDraft}
+                      autoFocus
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onBlur={() => void finishRename()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault()
+                          void finishRename()
+                        } else if (event.key === "Escape") {
+                          event.preventDefault()
+                          renameTarget.current = undefined
+                          setRenameDraft(item.name)
+                          setRenamingWorkspaceID(undefined)
+                        }
+                      }}
+                    />
+                  ) : (
+                    <span className="workspace-name">{item.name}</span>
+                  )}
                   <span className="workspace-path">({toDisplayPath(item.directory)})</span>
-                </button>
+                </div>
               </div>
 
               {!isCollapsed && (
@@ -146,6 +211,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
                       onContextMenu={(event) => {
                         event.preventDefault()
                         setMenu({
+                          kind: "session",
                           sessionID: session.id,
                           x: Math.max(8, Math.min(event.clientX, window.innerWidth - 190)),
                           y: Math.max(8, Math.min(event.clientY, window.innerHeight - 100)),
@@ -166,7 +232,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
         })}
       </nav>
 
-      {menu !== undefined && menuSession !== undefined && (
+      {menu?.kind === "session" && menuSession !== undefined && (
         <div
           ref={menuRef}
           className="session-context-menu"
@@ -193,6 +259,21 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
           >
             <Trash2 size={14} />
             删除会话
+          </button>
+        </div>
+      )}
+
+      {menu?.kind === "workspace" && menuWorkspace !== undefined && (
+        <div
+          ref={menuRef}
+          className="session-context-menu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button type="button" role="menuitem" onClick={() => startRename(menuWorkspace.id, menuWorkspace.name)}>
+            <Pencil size={14} />
+            重命名工作区
           </button>
         </div>
       )}
