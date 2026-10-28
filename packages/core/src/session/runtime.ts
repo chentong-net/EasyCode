@@ -65,6 +65,8 @@ export interface SessionManager {
   interrupt(sessionID: string): Promise<void>
   /** 置顶或取消置顶会话。 */
   pin(sessionID: string, pinned: boolean): Promise<Session>
+  /** 修改会话标题，不改变会话目录或历史消息。 */
+  rename(sessionID: string, title: string): Promise<Session>
   /** 永久删除会话；运行中的会话会先被中断。 */
   delete(sessionID: string): Promise<void>
   isRunning(sessionID: string): boolean
@@ -281,6 +283,18 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
         sessionID,
         timestamp: Date.now(),
         pinnedAt: pinned ? Date.now() : null,
+      })
+      return handle.state.session
+    },
+    rename: async (sessionID, input) => {
+      const title = input.trim()
+      if (title.length === 0) throw new Error("会话标题不能为空")
+      const handle = await load(sessionID)
+      await handle.append({
+        type: "session.updated",
+        sessionID,
+        timestamp: Date.now(),
+        title,
       })
       return handle.state.session
     },
