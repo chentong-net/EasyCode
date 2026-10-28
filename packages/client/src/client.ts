@@ -10,6 +10,7 @@ import {
   PromptResponse,
   ProtocolError,
   RenameWorkspaceRequest,
+  RenameSessionRequest,
   SessionListResponse,
   SessionResponse,
   WorkspaceListResponse,
@@ -90,6 +91,7 @@ export interface EasyCodeClient {
     list(signal?: AbortSignal): Promise<Session[]>
     create(input: CreateSessionRequest, signal?: AbortSignal): Promise<Session>
     get(sessionID: string, signal?: AbortSignal): Promise<Session>
+    rename(sessionID: string, input: RenameSessionRequest, signal?: AbortSignal): Promise<Session>
     pin(sessionID: string, input: PinSessionRequest, signal?: AbortSignal): Promise<Session>
     delete(sessionID: string, signal?: AbortSignal): Promise<void>
     messages(sessionID: string, signal?: AbortSignal): Promise<Message[]>
@@ -141,6 +143,9 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       create: (input, signal) => post(transport, Endpoints.sessions(), input, SessionResponse, signal),
 
       get: (sessionID, signal) => get(transport, Endpoints.session(sessionID), SessionResponse, signal),
+
+      rename: (sessionID, input, signal) =>
+        patch(transport, Endpoints.renameSession(sessionID), input, SessionResponse, signal),
 
       pin: (sessionID, input, signal) => post(transport, Endpoints.pinSession(sessionID), input, SessionResponse, signal),
 
