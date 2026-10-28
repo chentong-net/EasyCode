@@ -30,6 +30,16 @@ export interface WorkspaceManagerDeps {
   logger?: Logger
 }
 
+export class WorkspaceDeleteError extends Error {
+  constructor(
+    readonly code: "not_found" | "default_workspace",
+    message: string,
+  ) {
+    super(message)
+    this.name = "WorkspaceDeleteError"
+  }
+}
+
 export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceManager => {
   const logger = deps.logger ?? createLogger("workspace")
   const store = createWorkspaceStore(deps.dataDir)
@@ -157,8 +167,10 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
     exclusive(async () => {
       const workspaces = await synchronizeSessions()
       const current = workspaces.find((workspace) => workspace.id === id)
-      if (!current) throw new Error(`工作区不存在：${id}`)
-      if (current.directory === defaultDirectory) throw new Error("默认工作区不能删除")
+      if (!current) throw new WorkspaceDeleteError("not_found", `工作区不存在：${id}`)
+      if (current.directory === defaultDirectory) {
+        throw new WorkspaceDeleteError("default_workspace", "默认工作区不能删除")
+      }
 
       const deletedSessions = await deps.deleteSessionsByDirectory(current.directory)
       await store.write(workspaces.filter((workspace) => workspace.id !== id))

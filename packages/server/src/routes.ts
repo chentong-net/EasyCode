@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 
-import { calculateCompactionBudget, type Core, type Logger } from "@easycode/core"
+import { calculateCompactionBudget, WorkspaceDeleteError, type Core, type Logger } from "@easycode/core"
 import {
   API_VERSION,
   CreateWorkspaceRequest,
@@ -139,7 +139,14 @@ const handleRequest = async (
         return
       }
       if (method === "DELETE") {
-        sendJSON(res, 200, await core.workspaces.delete(workspaceID))
+        try {
+          sendJSON(res, 200, await core.workspaces.delete(workspaceID))
+        } catch (error) {
+          if (error instanceof WorkspaceDeleteError) {
+            throw new ProtocolError(error.code === "not_found" ? "not_found" : "bad_request", error.message)
+          }
+          throw error
+        }
         return
       }
       throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
