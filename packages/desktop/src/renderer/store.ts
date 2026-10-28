@@ -39,6 +39,8 @@ interface DeltaBuffer {
 }
 
 export interface EasyCodeStore {
+  /** 全部工作区下的会话，供侧边栏分组。 */
+  allSessions: Session[]
   /** 当前工作目录下的会话，置顶优先，其次按最近活跃时间倒序 */
   sessions: Session[]
   currentSessionID: string | undefined
@@ -466,6 +468,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const mergedMessages = useMemo(() => mergeDeltas(visibleMessages, deltas), [visibleMessages, deltas])
 
   return {
+    allSessions: sessions,
     sessions: scopedSessions,
     currentSessionID: activeSessionID,
     currentSession,
