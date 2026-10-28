@@ -73,6 +73,11 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const workspaces = createWorkspaceManager({
     dataDir: config.dataDir,
     listSessions: () => sessions.list(),
+    deleteSessionsByDirectory: async (directory) => {
+      const matches = (await sessions.list()).filter((session) => session.directory === directory)
+      for (const session of matches) await sessions.delete(session.id)
+      return matches.length
+    },
     logger: logger.child("workspace"),
   })
 

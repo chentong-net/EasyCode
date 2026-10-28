@@ -17,12 +17,16 @@ export interface WorkspaceManager {
   rename(id: string, name: string): Promise<Workspace>
   /** 置顶或取消置顶；默认工作区始终固定第一。 */
   pin(id: string, pinned: boolean): Promise<Workspace>
+  /** 删除非默认工作区及其会话记录，不删除磁盘目录。 */
+  delete(id: string): Promise<{ deletedSessions: number }>
 }
 
 export interface WorkspaceManagerDeps {
   dataDir: string
   /** 用于把升级前创建的会话目录补建为工作区。 */
   listSessions: () => Promise<Session[]>
+  /** 删除目录下的全部会话记录。 */
+  deleteSessionsByDirectory: (directory: string) => Promise<number>
   logger?: Logger
 }
 
@@ -149,7 +153,20 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
       return updated
     })
 
-  return { list, add, rename, pin }
+  const remove = (id: string): Promise<{ deletedSessions: number }> =>
+    exclusive(async () => {
+      const workspaces = await synchronizeSessions()
+      const current = workspaces.find((workspace) => workspace.id === id)
+      if (!current) throw new Error(`工作区不存在：${id}`)
+      if (current.directory === defaultDirectory) throw new Error("默认工作区不能删除")
+
+      const deletedSessions = await deps.deleteSessionsByDirectory(current.directory)
+      await store.write(workspaces.filter((workspace) => workspace.id !== id))
+      logger.info("已删除工作区", { workspaceID: id, directory: current.directory, deletedSessions })
+      return { deletedSessions }
+    })
+
+  return { list, add, rename, pin, delete: remove }
 }
 
 const validateDirectory = async (input: string): Promise<string> => {
