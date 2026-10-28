@@ -3,7 +3,7 @@ import type { EasyCodeClient } from "@easycode/client"
 import { Chat } from "./Chat"
 import { Sidebar } from "./Sidebar"
 import { useEasyCode } from "./store"
-import { useWorkspace } from "./workspace"
+import { useWorkspaces } from "./workspace"
 
 /**
  * 应用外壳。
@@ -15,8 +15,9 @@ import { useWorkspace } from "./workspace"
  * 并且要给左上角的红绿灯按钮让出位置，用样式按平台区分（见 styles.css）。
  */
 export const App = ({ client }: { client: EasyCodeClient }) => {
-  const workspace = useWorkspace()
+  const workspace = useWorkspaces(client)
   const store = useEasyCode(client, workspace.directory)
+  const error = store.error ?? workspace.error
 
   return (
     <>
@@ -31,10 +32,17 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
         </div>
       </div>
 
-      {store.error !== undefined && (
+      {error !== undefined && (
         <div className="error-toast" role="alert">
-          <span>{store.error}</span>
-          <button type="button" className="btn btn-small" onClick={store.clearError}>
+          <span>{error}</span>
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() => {
+              store.clearError()
+              workspace.clearError()
+            }}
+          >
             知道了
           </button>
         </div>

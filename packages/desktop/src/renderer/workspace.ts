@@ -1,77 +1,147 @@
+import type { EasyCodeClient } from "@easycode/client"
 import { DEFAULT_WORKSPACE_DIRECTORY } from "@easycode/protocol"
-import { useCallback, useState } from "react"
+import type { Workspace } from "@easycode/schema"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 import { selectDirectory, toDisplayPath } from "./bridge"
+import { describeError } from "./format"
 
-/**
- * 当前工作目录。
- *
- * 这是应用级的设置，不是会话级的：侧边栏只列出该目录下的会话，
- * 「新建会话」也总是建在这个目录里。会话创建后其目录不再改变，
- * 因此它同时也是「agent 能在哪里动手」的边界。
- *
- * 选择用系统原生弹窗而不是输入框：用户需要的是一个真实的目录，
- * 手打路径既容易写错，也无法确认目录是否真的存在。
- */
-
-/** 持久化用的键。目录是用户的选择，重开应用后不应该重新问一遍。 */
-const STORAGE_KEY = "easycode.workspace"
+/** 上次选中的工作区 ID。目录继续作为兼容旧版本的迁移线索。 */
+const ACTIVE_STORAGE_KEY = "easycode.activeWorkspace"
+const LEGACY_DIRECTORY_STORAGE_KEY = "easycode.workspace"
 
 export interface WorkspaceState {
-  /** 当前工作目录的绝对路径。undefined 表示用户还没选过。 */
+  workspaces: Workspace[]
+  activeWorkspace: Workspace | undefined
+  /** 当前工作区目录，供会话列表过滤和新建会话使用。 */
   directory: string | undefined
-  /** 展示用的短路径，例如 ~/easycode */
+  /** 展示用路径，例如 ~/easycode。 */
   label: string | undefined
-  /** 是否正在等待用户在弹出的窗口里做选择 */
+  loading: boolean
   selecting: boolean
+  error: string | undefined
+  selectWorkspace(workspaceID: string): void
+  /** 选择目录并添加工作区；重复目录会直接选中已有项。 */
   select(): Promise<void>
+  rename(workspaceID: string, name: string): Promise<Workspace | undefined>
+  clearError(): void
 }
 
-export const useWorkspace = (): WorkspaceState => {
-  const [directory, setDirectory] = useState<string | undefined>(readStored)
+export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [activeWorkspaceID, setActiveWorkspaceID] = useState<string | undefined>(readStoredActive)
+  const [loading, setLoading] = useState(true)
   const [selecting, setSelecting] = useState(false)
+  const [error, setError] = useState<string | undefined>()
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const list = await client.workspaces.list(controller.signal)
+        if (controller.signal.aborted) return
+        setWorkspaces(list)
+        const legacyDirectory = readStoredLegacyDirectory()
+        setActiveWorkspaceID((current) => {
+          if (current !== undefined && list.some((workspace) => workspace.id === current)) return current
+          const migrated = list.find((workspace) => workspace.directory === legacyDirectory)
+          return migrated?.id ?? list[0]?.id
+        })
+      } catch (cause) {
+        if (!controller.signal.aborted) setError(describeError(cause))
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    })()
+    return () => controller.abort()
+  }, [client])
+
+  useEffect(() => {
+    if (activeWorkspaceID === undefined) return
+    writeStored(ACTIVE_STORAGE_KEY, activeWorkspaceID)
+  }, [activeWorkspaceID])
+
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceID),
+    [activeWorkspaceID, workspaces],
+  )
+
+  const selectWorkspace = useCallback((workspaceID: string) => {
+    setError(undefined)
+    setActiveWorkspaceID(workspaceID)
+  }, [])
 
   const select = useCallback(async () => {
     setSelecting(true)
+    setError(undefined)
     try {
-      // 第一次打开时把弹窗定位到默认工作目录，省掉用户逐级点进去的步骤。
-      // 目录不存在时由主进程回退到最近的上级目录
-      const picked = await selectDirectory(directory ?? DEFAULT_WORKSPACE_DIRECTORY)
+      const picked = await selectDirectory(activeWorkspace?.directory ?? DEFAULT_WORKSPACE_DIRECTORY)
       if (picked === undefined) return
-      writeStored(picked)
-      setDirectory(picked)
+      const workspace = await client.workspaces.add({ directory: picked })
+      setWorkspaces((previous) =>
+        previous.some((item) => item.id === workspace.id)
+          ? previous.map((item) => (item.id === workspace.id ? workspace : item))
+          : [...previous, workspace],
+      )
+      setActiveWorkspaceID(workspace.id)
+    } catch (cause) {
+      setError(describeError(cause))
     } finally {
       setSelecting(false)
     }
-  }, [directory])
+  }, [activeWorkspace?.directory, client.workspaces])
+
+  const rename = useCallback(
+    async (workspaceID: string, name: string): Promise<Workspace | undefined> => {
+      setError(undefined)
+      try {
+        const updated = await client.workspaces.rename(workspaceID, { name })
+        setWorkspaces((previous) =>
+          previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace)),
+        )
+        return updated
+      } catch (cause) {
+        setError(describeError(cause))
+        return undefined
+      }
+    },
+    [client.workspaces],
+  )
+
+  const clearError = useCallback(() => setError(undefined), [])
 
   return {
-    directory,
-    label: directory === undefined ? undefined : toDisplayPath(directory),
+    workspaces,
+    activeWorkspace,
+    directory: activeWorkspace?.directory,
+    label: activeWorkspace === undefined ? undefined : toDisplayPath(activeWorkspace.directory),
+    loading,
     selecting,
+    error,
+    selectWorkspace,
     select,
+    rename,
+    clearError,
   }
 }
 
-/**
- * 读取上次选择的目录。
- *
- * localStorage 在某些情况下会抛错（隐私模式、存储被禁用），
- * 这时退化成「每次启动都要重新选一次」即可，不该让整个界面起不来。
- */
-const readStored = (): string | undefined => {
+const readStoredActive = (): string | undefined => readStored(ACTIVE_STORAGE_KEY)
+
+const readStoredLegacyDirectory = (): string | undefined => readStored(LEGACY_DIRECTORY_STORAGE_KEY)
+
+const readStored = (key: string): string | undefined => {
   try {
-    const value = window.localStorage.getItem(STORAGE_KEY)
+    const value = window.localStorage.getItem(key)
     return value !== null && value.length > 0 ? value : undefined
   } catch {
     return undefined
   }
 }
 
-const writeStored = (directory: string): void => {
+const writeStored = (key: string, value: string): void => {
   try {
-    window.localStorage.setItem(STORAGE_KEY, directory)
+    window.localStorage.setItem(key, value)
   } catch {
-    // 存不下只是下次要重选，不影响本次使用
+    // 存不下只会影响下一次启动时的默认选择，不影响本次使用。
   }
 }
