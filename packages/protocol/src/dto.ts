@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { Delivery, Message, PermissionReply, PermissionRequest, Session } from "@easycode/schema"
+import { Delivery, Message, PermissionReply, PermissionRequest, Session, Workspace } from "@easycode/schema"
 
 /**
  * HTTP 报文的数据结构。
@@ -57,6 +57,29 @@ export type AgentListResponse = z.infer<typeof AgentListResponse>
 export const SessionListResponse = z.array(Session)
 
 export type SessionListResponse = z.infer<typeof SessionListResponse>
+
+/** 工作区列表与详情。 */
+export const WorkspaceListResponse = z.array(Workspace)
+
+export type WorkspaceListResponse = z.infer<typeof WorkspaceListResponse>
+
+export const WorkspaceResponse = Workspace
+
+export type WorkspaceResponse = z.infer<typeof WorkspaceResponse>
+
+/** 添加工作区。目录必须已经存在，由 Core 解析和校验。 */
+export const CreateWorkspaceRequest = z.object({
+  directory: z.string().trim().min(1, "工作区目录不能为空"),
+})
+
+export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequest>
+
+/** 重命名工作区的显示名称，不修改磁盘目录。 */
+export const RenameWorkspaceRequest = z.object({
+  name: z.string().trim().min(1, "工作区名称不能为空"),
+})
+
+export type RenameWorkspaceRequest = z.infer<typeof RenameWorkspaceRequest>
 
 /**
  * 新建会话的默认工作目录。

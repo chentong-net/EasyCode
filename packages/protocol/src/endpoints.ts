@@ -33,6 +33,9 @@ export const AFTER_QUERY_PARAM = "after"
 
 const segment = (value: string): string => encodeURIComponent(value)
 
+/** 工作区集合。 */
+export const workspacePath = (workspaceID: string): string => `${API_PREFIX}/workspaces/${segment(workspaceID)}`
+
 /** 单个会话的路径。其它会话级端点都基于它拼接。 */
 export const sessionPath = (sessionID: string): string => `${API_PREFIX}/sessions/${segment(sessionID)}`
 
@@ -42,6 +45,12 @@ export const Endpoints = {
 
   /** 可用的 agent 列表 */
   agents: (): string => `${API_PREFIX}/agents`,
+
+  /** 工作区集合：GET 列表 / POST 添加 */
+  workspaces: (): string => `${API_PREFIX}/workspaces`,
+
+  /** 单个工作区：PATCH 重命名 */
+  workspace: (workspaceID: string): string => workspacePath(workspaceID),
 
   /** 会话集合：GET 列表 / POST 创建 */
   sessions: (): string => `${API_PREFIX}/sessions`,
