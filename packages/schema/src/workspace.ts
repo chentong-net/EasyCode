@@ -13,6 +13,8 @@ export const Workspace = z.object({
   directory: z.string(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /** 置顶时间；未置顶时为空。默认工作区不依赖该字段，始终固定排在第一位。 */
+  pinnedAt: z.number().int().positive().optional(),
 })
 
 export type Workspace = z.infer<typeof Workspace>
