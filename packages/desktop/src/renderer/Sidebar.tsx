@@ -23,6 +23,7 @@ type ContextMenu =
 export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace: WorkspaceState }) => {
   const hasWorkspace = workspace.activeWorkspace !== undefined
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const [initializedWorkspaceIDs, setInitializedWorkspaceIDs] = useState<Set<string>>(() => new Set())
   const [menu, setMenu] = useState<ContextMenu | undefined>()
   const [renamingWorkspaceID, setRenamingWorkspaceID] = useState<string | undefined>()
   const [renameDraft, setRenameDraft] = useState("")
@@ -69,6 +70,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
       }
       return next
     })
+    setInitializedWorkspaceIDs(new Set(ids))
   }, [workspace.workspaces])
 
   useEffect(() => {
@@ -207,7 +209,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
 
         {workspace.workspaces.map((item) => {
           const sessions = sessionsByDirectory.get(item.directory) ?? []
-          const isCollapsed = knownWorkspaceIDs.current === undefined || collapsed.has(item.id)
+          const isCollapsed = !initializedWorkspaceIDs.has(item.id) || collapsed.has(item.id)
           const isActive = item.id === workspace.activeWorkspace?.id
           return (
             <section key={item.id} className={`workspace-group${isActive ? " workspace-group-active" : ""}`}>
