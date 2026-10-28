@@ -1,4 +1,4 @@
-import { realpath, stat } from "node:fs/promises"
+import { stat } from "node:fs/promises"
 import { basename, resolve } from "node:path"
 
 import type { Session, Workspace } from "@easycode/schema"
@@ -115,5 +115,5 @@ const validateDirectory = async (input: string): Promise<string> => {
     throw new Error(`工作区目录不存在或无法访问：${directory}`, { cause: error })
   })
   if (!metadata.isDirectory()) throw new Error(`工作区路径不是目录：${directory}`)
-  return realpath(directory)
+  return directory
 }
