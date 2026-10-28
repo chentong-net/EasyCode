@@ -235,9 +235,20 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
   )
 }
 
+const NewConversation = ({ store }: { store: EasyCodeStore }) => (
+  <section className="thread thread-empty">
+    <div className="thread-viewport">
+      <h1 className="hero-title">今天想让我做点什么？</h1>
+    </div>
+    <div className="composer-area">
+      <Composer running={false} onSend={store.send} onStop={store.interrupt} />
+    </div>
+  </section>
+)
+
 export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: WorkspaceState }) => {
   const contextUsage = useMemo(() => useContextUsage(store.messages), [store.messages])
-  const title = store.currentSession?.title ?? "EasyCode"
+  const title = store.currentSession?.title ?? "新会话"
 
   if (workspace.directory === undefined) {
     return (
@@ -254,24 +265,11 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
   }
 
   if (store.currentSessionID === undefined) {
-    if (!store.loading && store.sessions.length > 0) {
-      return (
-        <main className="chat" aria-label="未选择会话">
-          <ChatHeader title={title} />
-        </main>
-      )
-    }
     return (
       <main className="chat">
         <ChatHeader title={title} />
-        <div className="placeholder">
-          <p className="placeholder-text">{store.loading ? "正在加载…" : "还没有会话"}</p>
-          {!store.loading && (
-            <button type="button" className="btn" onClick={store.startNewSession}>
-              新会话
-            </button>
-          )}
-        </div>
+        <NewConversation store={store} />
+        <StatusBar store={store} contextUsage={undefined} />
       </main>
     )
   }
