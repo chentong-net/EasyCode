@@ -24,6 +24,7 @@ export interface WorkspaceState {
   /** 选择目录并添加工作区；重复目录会直接选中已有项。 */
   select(): Promise<void>
   rename(workspaceID: string, name: string): Promise<Workspace | undefined>
+  pin(workspaceID: string, pinned: boolean): Promise<Workspace | undefined>
   clearError(): void
 }
 
@@ -40,7 +41,7 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
       try {
         const list = await client.workspaces.list(controller.signal)
         if (controller.signal.aborted) return
-        setWorkspaces(list)
+        setWorkspaces(sortWorkspaces(list))
         const legacyDirectory = readStoredLegacyDirectory()
         setActiveWorkspaceID((current) => {
           if (current !== undefined && list.some((workspace) => workspace.id === current)) return current
@@ -79,9 +80,11 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
       if (picked === undefined) return
       const workspace = await client.workspaces.add({ directory: picked })
       setWorkspaces((previous) =>
-        previous.some((item) => item.id === workspace.id)
-          ? previous.map((item) => (item.id === workspace.id ? workspace : item))
-          : [...previous, workspace],
+        sortWorkspaces(
+          previous.some((item) => item.id === workspace.id)
+            ? previous.map((item) => (item.id === workspace.id ? workspace : item))
+            : [...previous, workspace],
+        ),
       )
       setActiveWorkspaceID(workspace.id)
     } catch (cause) {
@@ -97,7 +100,24 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
       try {
         const updated = await client.workspaces.rename(workspaceID, { name })
         setWorkspaces((previous) =>
-          previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace)),
+          sortWorkspaces(previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace))),
+        )
+        return updated
+      } catch (cause) {
+        setError(describeError(cause))
+        return undefined
+      }
+    },
+    [client.workspaces],
+  )
+
+  const pin = useCallback(
+    async (workspaceID: string, pinned: boolean): Promise<Workspace | undefined> => {
+      setError(undefined)
+      try {
+        const updated = await client.workspaces.pin(workspaceID, { pinned })
+        setWorkspaces((previous) =>
+          sortWorkspaces(previous.map((workspace) => (workspace.id === workspaceID ? updated : workspace))),
         )
         return updated
       } catch (cause) {
@@ -121,9 +141,26 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     selectWorkspace,
     select,
     rename,
+    pin,
     clearError,
   }
 }
+
+export const isDefaultWorkspace = (workspace: Workspace): boolean => toDisplayPath(workspace.directory) === "~/easycode"
+
+const sortWorkspaces = (workspaces: Workspace[]): Workspace[] =>
+  [...workspaces].sort((left, right) => {
+    const leftDefault = isDefaultWorkspace(left)
+    const rightDefault = isDefaultWorkspace(right)
+    if (leftDefault !== rightDefault) return leftDefault ? -1 : 1
+
+    const leftPinned = left.pinnedAt !== undefined
+    const rightPinned = right.pinnedAt !== undefined
+    if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
+    if (leftPinned && rightPinned) return (right.pinnedAt ?? 0) - (left.pinnedAt ?? 0)
+
+    return left.createdAt - right.createdAt || left.name.localeCompare(right.name)
+  })
 
 const readStoredActive = (): string | undefined => readStored(ACTIVE_STORAGE_KEY)
 
