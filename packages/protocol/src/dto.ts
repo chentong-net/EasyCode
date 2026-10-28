@@ -81,6 +81,13 @@ export const RenameWorkspaceRequest = z.object({
 
 export type RenameWorkspaceRequest = z.infer<typeof RenameWorkspaceRequest>
 
+/** 置顶或取消置顶工作区。默认工作区始终固定第一，不接受该操作。 */
+export const PinWorkspaceRequest = z.object({
+  pinned: z.boolean(),
+})
+
+export type PinWorkspaceRequest = z.infer<typeof PinWorkspaceRequest>
+
 /**
  * 新建会话的默认工作目录。
  *

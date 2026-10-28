@@ -52,6 +52,9 @@ export const Endpoints = {
   /** 单个工作区：PATCH 重命名 */
   workspace: (workspaceID: string): string => workspacePath(workspaceID),
 
+  /** 置顶或取消置顶工作区 */
+  pinWorkspace: (workspaceID: string): string => `${workspacePath(workspaceID)}/pin`,
+
   /** 会话集合：GET 列表 / POST 创建 */
   sessions: (): string => `${API_PREFIX}/sessions`,
 
