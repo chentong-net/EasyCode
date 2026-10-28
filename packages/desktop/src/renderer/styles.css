@@ -119,28 +119,15 @@ pre {
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 9px;
   flex: none;
   height: 52px;
   padding: 0 20px;
   -webkit-app-region: drag;
 }
 
-.brand-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 27px;
-  height: 27px;
-  background: var(--accent);
-  border-radius: 8px;
-  color: #ffffff;
-  box-shadow: 0 2px 7px rgba(55, 104, 212, 0.2);
-}
-
 .brand-name {
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.15px;
 }
 
@@ -196,7 +183,7 @@ pre {
 }
 
 .workspace-group {
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 
 .workspace-row {
@@ -284,7 +271,7 @@ pre {
 }
 
 .workspace-sessions {
-  padding: 2px 0 4px 24px;
+  padding: 10px 0 6px 24px;
 }
 
 .sidebar-empty {
@@ -365,13 +352,13 @@ pre {
 }
 
 .session-item:hover {
-  background: rgba(255, 255, 255, 0.66);
+  background: #eceeeb;
 }
 
 .session-item-active {
-  background: #ffffff;
+  background: #e7e9e6;
   color: var(--text);
-  box-shadow: 0 1px 4px rgba(34, 43, 34, 0.06);
+  box-shadow: none;
 }
 
 .session-context-menu {
@@ -1178,6 +1165,8 @@ pre {
  * 留白按红绿灯的实际宽度给：再宽一点标题就和按钮脱开了，反倒显得标题是浮着的。
  * Windows 与 Linux 没有这个装饰，从边缘起排即可。
  */
-[data-platform="darwin"] .sidebar-brand {
-  padding-left: 80px;
+[data-platform="darwin"] .sidebar-brand,
+[data-platform="darwin"] .chat-header {
+  height: 76px;
+  padding-top: 32px;
 }

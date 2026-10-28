@@ -8,7 +8,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Sparkles,
   Trash2,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -107,9 +106,6 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <span className="brand-mark" aria-hidden>
-          <Sparkles size={16} strokeWidth={2} />
-        </span>
         <span className="brand-name">EasyCode</span>
       </div>
 
