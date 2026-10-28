@@ -21,6 +21,7 @@ export interface WorkspaceState {
   select(): Promise<void>
   rename(workspaceID: string, name: string): Promise<Workspace | undefined>
   pin(workspaceID: string, pinned: boolean): Promise<Workspace | undefined>
+  deleteWorkspace(workspaceID: string): Promise<{ deletedSessions: number } | undefined>
   clearError(): void
 }
 
@@ -115,6 +116,25 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     [client.workspaces],
   )
 
+  const deleteWorkspace = useCallback(
+    async (workspaceID: string): Promise<{ deletedSessions: number } | undefined> => {
+      setError(undefined)
+      try {
+        const result = await client.workspaces.delete(workspaceID)
+        const remaining = workspaces.filter((workspace) => workspace.id !== workspaceID)
+        setWorkspaces(remaining)
+        if (activeWorkspaceID === workspaceID) {
+          setActiveWorkspaceID(remaining.find(isDefaultWorkspace)?.id ?? remaining[0]?.id)
+        }
+        return result
+      } catch (cause) {
+        setError(describeError(cause))
+        return undefined
+      }
+    },
+    [activeWorkspaceID, client.workspaces, workspaces],
+  )
+
   const clearError = useCallback(() => setError(undefined), [])
 
   return {
@@ -129,6 +149,7 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     select,
     rename,
     pin,
+    deleteWorkspace,
     clearError,
   }
 }
