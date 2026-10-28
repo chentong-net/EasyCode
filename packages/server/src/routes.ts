@@ -6,6 +6,7 @@ import {
   CreateWorkspaceRequest,
   CreateSessionRequest,
   Endpoints,
+  PinWorkspaceRequest,
   PinSessionRequest,
   PermissionReplyRequest,
   PromptRequest,
@@ -134,6 +135,15 @@ const handleRequest = async (
       const workspaceID = decodeURIComponent(rest[0] as string)
       const body = parseBody(RenameWorkspaceRequest, await readJSON(req))
       sendJSON(res, 200, await core.workspaces.rename(workspaceID, body.name))
+      return
+    }
+
+    const action = rest[1]
+    if (rest.length === 2 && action === "pin") {
+      if (method !== "POST") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+      const workspaceID = decodeURIComponent(rest[0] as string)
+      const body = parseBody(PinWorkspaceRequest, await readJSON(req))
+      sendJSON(res, 200, await core.workspaces.pin(workspaceID, body.pinned))
       return
     }
   }
@@ -295,6 +305,7 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.workspaces()}`,
   `POST ${Endpoints.workspaces()}`,
   `PATCH ${Endpoints.workspace(":id")}`,
+  `POST ${Endpoints.pinWorkspace(":id")}`,
   `GET  ${Endpoints.sessions()}`,
   `POST ${Endpoints.sessions()}`,
   `GET  ${Endpoints.session(":id")}`,
