@@ -6,10 +6,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { selectDirectory, toDisplayPath } from "./bridge"
 import { describeError } from "./format"
 
-/** 上次选中的工作区 ID。目录继续作为兼容旧版本的迁移线索。 */
-const ACTIVE_STORAGE_KEY = "easycode.activeWorkspace"
-const LEGACY_DIRECTORY_STORAGE_KEY = "easycode.workspace"
-
 export interface WorkspaceState {
   workspaces: Workspace[]
   activeWorkspace: Workspace | undefined
@@ -30,7 +26,7 @@ export interface WorkspaceState {
 
 export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [activeWorkspaceID, setActiveWorkspaceID] = useState<string | undefined>(readStoredActive)
+  const [activeWorkspaceID, setActiveWorkspaceID] = useState<string | undefined>()
   const [loading, setLoading] = useState(true)
   const [selecting, setSelecting] = useState(false)
   const [error, setError] = useState<string | undefined>()
@@ -42,12 +38,8 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
         const list = await client.workspaces.list(controller.signal)
         if (controller.signal.aborted) return
         setWorkspaces(sortWorkspaces(list))
-        const legacyDirectory = readStoredLegacyDirectory()
-        setActiveWorkspaceID((current) => {
-          if (current !== undefined && list.some((workspace) => workspace.id === current)) return current
-          const migrated = list.find((workspace) => workspace.directory === legacyDirectory)
-          return migrated?.id ?? list[0]?.id
-        })
+        const defaultWorkspace = list.find(isDefaultWorkspace)
+        setActiveWorkspaceID(defaultWorkspace?.id ?? list[0]?.id)
       } catch (cause) {
         if (!controller.signal.aborted) setError(describeError(cause))
       } finally {
@@ -56,11 +48,6 @@ export const useWorkspaces = (client: EasyCodeClient): WorkspaceState => {
     })()
     return () => controller.abort()
   }, [client])
-
-  useEffect(() => {
-    if (activeWorkspaceID === undefined) return
-    writeStored(ACTIVE_STORAGE_KEY, activeWorkspaceID)
-  }, [activeWorkspaceID])
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceID),
@@ -161,24 +148,3 @@ const sortWorkspaces = (workspaces: Workspace[]): Workspace[] =>
 
     return left.createdAt - right.createdAt || left.name.localeCompare(right.name)
   })
-
-const readStoredActive = (): string | undefined => readStored(ACTIVE_STORAGE_KEY)
-
-const readStoredLegacyDirectory = (): string | undefined => readStored(LEGACY_DIRECTORY_STORAGE_KEY)
-
-const readStored = (key: string): string | undefined => {
-  try {
-    const value = window.localStorage.getItem(key)
-    return value !== null && value.length > 0 ? value : undefined
-  } catch {
-    return undefined
-  }
-}
-
-const writeStored = (key: string, value: string): void => {
-  try {
-    window.localStorage.setItem(key, value)
-  } catch {
-    // 存不下只会影响下一次启动时的默认选择，不影响本次使用。
-  }
-}
