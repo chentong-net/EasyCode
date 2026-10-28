@@ -406,7 +406,12 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const startNewSession = useCallback(() => {
     keepNoSelection.current = true
     setError(undefined)
+    setCurrentSession(undefined)
     setCurrentSessionID(undefined)
+    setMessages([])
+    setPendingPermissions([])
+    setRunning(false)
+    setCompaction({ phase: "idle" })
   }, [])
 
   const pinSession = useCallback(
