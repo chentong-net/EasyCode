@@ -255,10 +255,12 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
       <main className="chat">
         <ChatHeader title={title} />
         <div className="placeholder">
-          <p className="placeholder-text">还没有工作区</p>
-          <button type="button" className="btn" onClick={() => void workspace.select()} disabled={workspace.selecting}>
-            {workspace.selecting ? "请在弹出的窗口中选择…" : "添加工作区"}
-          </button>
+          <p className="placeholder-text">{workspace.loading ? "正在加载工作区…" : "还没有工作区"}</p>
+          {!workspace.loading && (
+            <button type="button" className="btn" onClick={() => void workspace.select()} disabled={workspace.selecting}>
+              {workspace.selecting ? "请在弹出的窗口中选择…" : "添加工作区"}
+            </button>
+          )}
         </div>
       </main>
     )
