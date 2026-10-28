@@ -1,4 +1,4 @@
-import type { Session } from "@easycode/schema"
+import type { Session, Workspace } from "@easycode/schema"
 import {
   ChevronDown,
   ChevronRight,
@@ -112,6 +112,21 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     setMenu(undefined)
     if (!window.confirm("确定永久删除这个会话及其全部聊天记录吗？")) return
     void store.deleteSession(sessionID)
+  }
+
+  const deleteWorkspace = async (item: Workspace): Promise<void> => {
+    setMenu(undefined)
+    if (isDefaultWorkspace(item)) return
+    const sessionCount = store.allSessions.filter((session) => session.directory === item.directory).length
+    const records = sessionCount === 0 ? "" : `及其 ${sessionCount} 个会话记录`
+    const confirmed = window.confirm(
+      `确定从 EasyCode 删除“${item.name}”工作区${records}吗？\n\n本地目录和文件不会被删除。`,
+    )
+    if (!confirmed) return
+    const result = await workspace.deleteWorkspace(item.id)
+    if (result === undefined) return
+    if (workspace.activeWorkspace?.id === item.id) store.startNewSession()
+    store.refreshSessions()
   }
 
   const startRename = (workspaceID: string, name: string): void => {
@@ -368,17 +383,28 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
             重命名
           </button>
           {!isDefaultWorkspace(menuWorkspace) && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenu(undefined)
-                void workspace.pin(menuWorkspace.id, menuWorkspace.pinnedAt === undefined)
-              }}
-            >
-              {menuWorkspace.pinnedAt === undefined ? <Pin size={14} /> : <PinOff size={14} />}
-              {menuWorkspace.pinnedAt === undefined ? "置顶" : "取消置顶"}
-            </button>
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenu(undefined)
+                  void workspace.pin(menuWorkspace.id, menuWorkspace.pinnedAt === undefined)
+                }}
+              >
+                {menuWorkspace.pinnedAt === undefined ? <Pin size={14} /> : <PinOff size={14} />}
+                {menuWorkspace.pinnedAt === undefined ? "置顶" : "取消置顶"}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="session-context-danger"
+                onClick={() => void deleteWorkspace(menuWorkspace)}
+              >
+                <Trash2 size={14} />
+                删除
+              </button>
+            </>
           )}
         </div>
       )}
