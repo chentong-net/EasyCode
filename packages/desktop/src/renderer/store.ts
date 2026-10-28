@@ -95,7 +95,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [sessionListToken, setSessionListToken] = useState(0)
   const loadedWorkspace = useRef<string | undefined>(undefined)
   const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const keepNoSelection = useRef(false)
+  const keepNoSelection = useRef(true)
   const [contextWindow, setContextWindow] = useState<number | undefined>()
   const [maxOutputTokens, setMaxOutputTokens] = useState<number | undefined>()
 
