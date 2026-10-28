@@ -26,8 +26,11 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
   const [menu, setMenu] = useState<ContextMenu | undefined>()
   const [renamingWorkspaceID, setRenamingWorkspaceID] = useState<string | undefined>()
   const [renameDraft, setRenameDraft] = useState("")
+  const [renamingSessionID, setRenamingSessionID] = useState<string | undefined>()
+  const [sessionRenameDraft, setSessionRenameDraft] = useState("")
   const menuRef = useRef<HTMLDivElement>(null)
   const renameTarget = useRef<string | undefined>(undefined)
+  const sessionRenameTarget = useRef<string | undefined>(undefined)
   const knownWorkspaceIDs = useRef<Set<string> | undefined>(undefined)
   const menuSession =
     menu?.kind === "session" ? store.allSessions.find((session) => session.id === menu.sessionID) : undefined
@@ -127,6 +130,24 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     const current = workspace.workspaces.find((item) => item.id === workspaceID)
     if (current?.name === name) return
     await workspace.rename(workspaceID, name)
+  }
+
+  const startSessionRename = (session: Session): void => {
+    setMenu(undefined)
+    sessionRenameTarget.current = session.id
+    setRenamingSessionID(session.id)
+    setSessionRenameDraft(session.title)
+  }
+
+  const finishSessionRename = async (): Promise<void> => {
+    const sessionID = sessionRenameTarget.current
+    const title = sessionRenameDraft.trim()
+    sessionRenameTarget.current = undefined
+    setRenamingSessionID(undefined)
+    if (sessionID === undefined || title.length === 0) return
+    const current = store.allSessions.find((session) => session.id === sessionID)
+    if (current?.title === title) return
+    await store.renameSession(sessionID, title)
   }
 
   return (
@@ -242,29 +263,56 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
               {!isCollapsed && (
                 <div className="workspace-sessions">
                   {sessions.length === 0 && <div className="session-empty">这个工作区还没有会话。</div>}
-                  {sessions.map((session) => (
-                    <button
-                      key={session.id}
-                      type="button"
-                      className={`session-item${session.id === store.currentSessionID ? " session-item-active" : ""}`}
-                      onClick={() => selectSession(session, item.id)}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        setMenu({
-                          kind: "session",
-                          sessionID: session.id,
-                          x: Math.max(8, Math.min(event.clientX, window.innerWidth - 190)),
-                          y: Math.max(8, Math.min(event.clientY, window.innerHeight - 100)),
-                        })
-                      }}
-                      title={session.title}
-                    >
-                      <span className="session-title">{session.title}</span>
-                      {session.pinnedAt !== undefined && (
-                        <Pin size={13} strokeWidth={1.8} className="session-pin" aria-label="已置顶" />
-                      )}
-                    </button>
-                  ))}
+                  {sessions.map((session) => {
+                    const className = `session-item${session.id === store.currentSessionID ? " session-item-active" : ""}`
+                    if (renamingSessionID === session.id) {
+                      return (
+                        <div key={session.id} className={`${className} session-item-editing`}>
+                          <input
+                            className="session-rename-input"
+                            value={sessionRenameDraft}
+                            autoFocus
+                            onChange={(event) => setSessionRenameDraft(event.target.value)}
+                            onBlur={() => void finishSessionRename()}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault()
+                                void finishSessionRename()
+                              } else if (event.key === "Escape") {
+                                event.preventDefault()
+                                sessionRenameTarget.current = undefined
+                                setSessionRenameDraft(session.title)
+                                setRenamingSessionID(undefined)
+                              }
+                            }}
+                          />
+                        </div>
+                      )
+                    }
+                    return (
+                      <button
+                        key={session.id}
+                        type="button"
+                        className={className}
+                        onClick={() => selectSession(session, item.id)}
+                        onContextMenu={(event) => {
+                          event.preventDefault()
+                          setMenu({
+                            kind: "session",
+                            sessionID: session.id,
+                            x: Math.max(8, Math.min(event.clientX, window.innerWidth - 190)),
+                            y: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)),
+                          })
+                        }}
+                        title={session.title}
+                      >
+                        <span className="session-title">{session.title}</span>
+                        {session.pinnedAt !== undefined && (
+                          <Pin size={13} strokeWidth={1.8} className="session-pin" aria-label="已置顶" />
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </section>
@@ -280,6 +328,10 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
           style={{ left: menu.x, top: menu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
+          <button type="button" role="menuitem" onClick={() => startSessionRename(menuSession)}>
+            <Pencil size={14} />
+            重命名
+          </button>
           <button
             type="button"
             role="menuitem"
@@ -289,7 +341,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
             }}
           >
             {menuSession.pinnedAt === undefined ? <Pin size={14} /> : <PinOff size={14} />}
-            {menuSession.pinnedAt === undefined ? "置顶会话" : "取消置顶"}
+            {menuSession.pinnedAt === undefined ? "置顶" : "取消置顶"}
           </button>
           <button
             type="button"
@@ -298,7 +350,7 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
             onClick={() => deleteSession(menuSession.id)}
           >
             <Trash2 size={14} />
-            删除会话
+            删除
           </button>
         </div>
       )}

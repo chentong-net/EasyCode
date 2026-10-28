@@ -345,6 +345,27 @@ pre {
   text-overflow: ellipsis;
 }
 
+.session-item-editing {
+  padding-right: 7px;
+}
+
+.session-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.session-rename-input:focus {
+  border-color: #b8bec7;
+}
+
 .session-pin {
   flex: none;
   color: var(--text-faint);
