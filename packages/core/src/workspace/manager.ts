@@ -15,6 +15,8 @@ export interface WorkspaceManager {
   add(directory: string): Promise<Workspace>
   /** 只修改工作区显示名称。 */
   rename(id: string, name: string): Promise<Workspace>
+  /** 置顶或取消置顶；默认工作区始终固定第一。 */
+  pin(id: string, pinned: boolean): Promise<Workspace>
 }
 
 export interface WorkspaceManagerDeps {
@@ -89,9 +91,7 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
 
   const list = (): Promise<Workspace[]> =>
     exclusive(async () =>
-      [...(await synchronizeSessions())].sort(
-        (left, right) => left.createdAt - right.createdAt || left.name.localeCompare(right.name),
-      ),
+      [...(await synchronizeSessions())].sort((left, right) => compareWorkspaces(left, right, defaultDirectory)),
     )
 
   const add = (input: string): Promise<Workspace> =>
@@ -131,7 +131,25 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
       return updated
     })
 
-  return { list, add, rename }
+  const pin = (id: string, pinned: boolean): Promise<Workspace> =>
+    exclusive(async () => {
+      const workspaces = await synchronizeSessions()
+      const index = workspaces.findIndex((workspace) => workspace.id === id)
+      const current = workspaces[index]
+      if (!current) throw new Error(`工作区不存在：${id}`)
+      if (current.directory === defaultDirectory) throw new Error("默认工作区始终固定置顶")
+
+      const now = Date.now()
+      const updated: Workspace = { ...current, updatedAt: now }
+      if (pinned) updated.pinnedAt = now
+      else delete updated.pinnedAt
+      workspaces[index] = updated
+      await store.write(workspaces)
+      logger.info(pinned ? "已置顶工作区" : "已取消置顶工作区", { workspaceID: id })
+      return updated
+    })
+
+  return { list, add, rename, pin }
 }
 
 const validateDirectory = async (input: string): Promise<string> => {
@@ -145,3 +163,16 @@ const validateDirectory = async (input: string): Promise<string> => {
 
 const workspaceName = (directory: string, defaultDirectory: string): string =>
   directory === defaultDirectory ? "默认工作区" : basename(directory) || directory
+
+const compareWorkspaces = (left: Workspace, right: Workspace, defaultDirectory: string): number => {
+  const leftDefault = left.directory === defaultDirectory
+  const rightDefault = right.directory === defaultDirectory
+  if (leftDefault !== rightDefault) return leftDefault ? -1 : 1
+
+  const leftPinned = left.pinnedAt !== undefined
+  const rightPinned = right.pinnedAt !== undefined
+  if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
+  if (leftPinned && rightPinned) return (right.pinnedAt ?? 0) - (left.pinnedAt ?? 0)
+
+  return left.createdAt - right.createdAt || left.name.localeCompare(right.name)
+}
