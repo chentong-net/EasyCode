@@ -38,6 +38,12 @@ interface DeltaBuffer {
   parts: Map<number, { kind: "text" | "reasoning"; text: string }>
 }
 
+export type CompactionViewState =
+  | { phase: "idle" }
+  | { phase: "running"; startedAt: number }
+  | { phase: "completed"; completedAt: number; degraded: boolean }
+  | { phase: "failed"; completedAt: number }
+
 export interface EasyCodeStore {
   /** 全部工作区下的会话，供侧边栏分组。 */
   allSessions: Session[]
@@ -51,6 +57,8 @@ export interface EasyCodeStore {
   running: boolean
   /** 待用户回应的授权请求 */
   pendingPermissions: PermissionRequest[]
+  /** 当前会话最近一次上下文压缩的展示状态。 */
+  compaction: CompactionViewState
   /** 当前记录的事件流连通状态；自动重连中的瞬时断开目前不会翻转此值。 */
   connected: boolean
   loading: boolean
@@ -79,6 +87,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [deltas, setDeltas] = useState<DeltaBuffer | undefined>()
   const [running, setRunning] = useState(false)
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([])
+  const [compaction, setCompaction] = useState<CompactionViewState>({ phase: "idle" })
   const [connected, setConnected] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>()
@@ -203,6 +212,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       setCurrentSession(undefined)
       setPendingPermissions([])
       setRunning(false)
+      setCompaction({ phase: "idle" })
       return
     }
 
@@ -214,12 +224,14 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     let again = false
     let runActive = false
     let listDirty = false
+    let activeCompactionID: string | undefined
 
     // 切换会话时先清空派生状态。事件的完整重放会把它们重新填对，
     // 不清的话会短暂显示上一个会话的运行状态与审批卡片
     setDeltas(undefined)
     setRunning(false)
     setPendingPermissions([])
+    setCompaction({ phase: "idle" })
 
     const load = async (): Promise<void> => {
       if (inFlight) {
@@ -305,11 +317,36 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           runActive = false
           setRunning(false)
           setDeltas(undefined)
+          if (activeCompactionID !== undefined) {
+            activeCompactionID = undefined
+            setCompaction({ phase: "failed", completedAt: event.timestamp })
+          }
           loadNow()
           if (listDirty) {
             listDirty = false
             refreshSessionListSoon()
           }
+          return
+
+        case "compaction.started":
+          activeCompactionID = event.compactionID
+          setCompaction({ phase: "running", startedAt: event.timestamp })
+          return
+
+        case "compaction.ended":
+          activeCompactionID = undefined
+          setCompaction({
+            phase: "completed",
+            completedAt: event.timestamp,
+            degraded: event.usedFallback === true || event.reason === "fallback",
+          })
+          scheduleLoad()
+          return
+
+        case "compaction.failed":
+          activeCompactionID = undefined
+          setCompaction({ phase: "failed", completedAt: event.timestamp })
+          scheduleLoad()
           return
 
         case "permission.asked":
@@ -475,6 +512,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     messages: mergedMessages,
     running,
     pendingPermissions,
+    compaction,
     connected,
     loading,
     error,
