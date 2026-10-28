@@ -70,7 +70,11 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   })
 
   const sessions = createSessionManager({ config, store, hub, agents, logger: logger.child("session") })
-  const workspaces = createWorkspaceManager({ dataDir: config.dataDir, logger: logger.child("workspace") })
+  const workspaces = createWorkspaceManager({
+    dataDir: config.dataDir,
+    listSessions: () => sessions.list(),
+    logger: logger.child("workspace"),
+  })
 
   const runner = createRunner({
     config,

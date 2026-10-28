@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises"
 import { basename, resolve } from "node:path"
 
-import type { Workspace } from "@easycode/schema"
+import type { Session, Workspace } from "@easycode/schema"
 
 import { newWorkspaceID } from "../id.js"
 import { createLogger, type Logger } from "../log.js"
@@ -19,6 +19,8 @@ export interface WorkspaceManager {
 
 export interface WorkspaceManagerDeps {
   dataDir: string
+  /** 用于把升级前创建的会话目录补建为工作区。 */
+  listSessions: () => Promise<Session[]>
   logger?: Logger
 }
 
@@ -36,13 +38,42 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
     return result
   }
 
-  const list = async (): Promise<Workspace[]> =>
-    [...(await store.list())].sort((left, right) => left.createdAt - right.createdAt || left.name.localeCompare(right.name))
+  const synchronizeSessions = async (): Promise<Workspace[]> => {
+    const workspaces = await store.list()
+    const knownDirectories = new Set(workspaces.map((workspace) => workspace.directory))
+    const additions: Workspace[] = []
+
+    for (const session of await deps.listSessions()) {
+      if (knownDirectories.has(session.directory)) continue
+      knownDirectories.add(session.directory)
+      additions.push({
+        id: newWorkspaceID(),
+        name: basename(session.directory) || session.directory,
+        directory: session.directory,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      })
+    }
+
+    if (additions.length === 0) return workspaces
+    const merged = [...workspaces, ...additions]
+    await store.write(merged)
+    logger.info("已从既有会话补建工作区", { count: additions.length })
+    return merged
+  }
+
+  const list = (): Promise<Workspace[]> =>
+    exclusive(async () =>
+      [...(await synchronizeSessions())].sort(
+        (left, right) => left.createdAt - right.createdAt || left.name.localeCompare(right.name),
+      ),
+    )
 
   const add = (input: string): Promise<Workspace> =>
     exclusive(async () => {
       const directory = await validateDirectory(input)
-      const existing = (await store.list()).find((workspace) => workspace.directory === directory)
+      const current = await synchronizeSessions()
+      const existing = current.find((workspace) => workspace.directory === directory)
       if (existing) return existing
 
       const now = Date.now()
@@ -53,7 +84,7 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
         createdAt: now,
         updatedAt: now,
       }
-      await store.write([...(await store.list()), workspace])
+      await store.write([...current, workspace])
       logger.info("已添加工作区", { workspaceID: workspace.id, directory })
       return workspace
     })
@@ -63,7 +94,7 @@ export const createWorkspaceManager = (deps: WorkspaceManagerDeps): WorkspaceMan
       const name = input.trim()
       if (name.length === 0) throw new Error("工作区名称不能为空")
 
-      const workspaces = await store.list()
+      const workspaces = await synchronizeSessions()
       const index = workspaces.findIndex((workspace) => workspace.id === id)
       const current = workspaces[index]
       if (!current) throw new Error(`工作区不存在：${id}`)
