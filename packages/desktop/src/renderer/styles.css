@@ -30,7 +30,6 @@
   --danger: #dc2626;
   --warn: #d97706;
   --radius: 9px;
-  --radius-lg: 22px;
   --sidebar-width: 284px;
   --content-max-width: 760px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -295,40 +294,9 @@ pre {
   line-height: 1.7;
 }
 
-.workspace-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 44px;
-  padding: 0 12px;
-  background: var(--bg);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  cursor: pointer;
-  text-align: left;
-}
-
-.workspace-button:hover:not(:disabled) {
-  border-color: #c9c9c9;
-}
-
-.workspace-button:disabled {
-  cursor: default;
-  color: var(--text-dim);
-}
-
 .workspace-icon {
   flex: none;
   color: var(--text-dim);
-}
-
-.workspace-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .new-session-button {
@@ -355,14 +323,6 @@ pre {
 .new-session-button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.session-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  padding: 0 12px 12px;
 }
 
 .session-empty {
