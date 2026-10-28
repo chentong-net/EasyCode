@@ -127,7 +127,17 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     if (!confirmed) return
     const result = await workspace.deleteWorkspace(item.id)
     if (result === undefined) return
-    if (workspace.activeWorkspace?.id === item.id) store.startNewSession()
+    if (workspace.activeWorkspace?.id === item.id) {
+      const defaultWorkspace = workspace.workspaces.find(isDefaultWorkspace)
+      if (defaultWorkspace !== undefined) {
+        setCollapsed((current) => {
+          const next = new Set(current)
+          next.add(defaultWorkspace.id)
+          return next
+        })
+      }
+      store.startNewSession()
+    }
     store.refreshSessions()
   }
 
