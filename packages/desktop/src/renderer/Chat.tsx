@@ -267,6 +267,16 @@ export const Chat = ({ store, workspace }: { store: EasyCodeStore; workspace: Wo
   }
 
   if (store.currentSessionID === undefined) {
+    if (store.loading) {
+      return (
+        <main className="chat">
+          <ChatHeader title={title} />
+          <div className="placeholder">
+            <p className="placeholder-text">正在加载会话…</p>
+          </div>
+        </main>
+      )
+    }
     return (
       <main className="chat">
         <ChatHeader title={title} />
