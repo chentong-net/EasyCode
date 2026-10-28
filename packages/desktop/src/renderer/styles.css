@@ -125,9 +125,9 @@ pre {
 }
 
 .brand-name {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.15px;
+  letter-spacing: -0.25px;
 }
 
 .sidebar-top {
@@ -454,7 +454,7 @@ pre {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 32px max(28px, calc((100% - var(--content-max-width)) / 2)) 12px;
+  padding: 24px max(28px, calc((100% - var(--content-max-width)) / 2)) 12px;
 }
 
 /*
@@ -1166,6 +1166,6 @@ pre {
  */
 [data-platform="darwin"] .sidebar-brand,
 [data-platform="darwin"] .chat-header {
-  height: 76px;
-  padding-top: 32px;
+  height: 64px;
+  padding-top: 22px;
 }
