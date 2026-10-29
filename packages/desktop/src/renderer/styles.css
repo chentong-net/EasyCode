@@ -515,6 +515,7 @@ pre {
 .message-user {
   align-self: flex-end;
   max-width: 76%;
+  margin-block: 24px;
   padding: 10px 16px;
   background: #f0f2ef;
   border: 1px solid #e7e9e6;
