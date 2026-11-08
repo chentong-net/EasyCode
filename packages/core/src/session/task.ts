@@ -84,6 +84,8 @@ export const amendTask = (task: TaskState, input: string): TaskState => ({
     goal: `${task.contract.goal}\n\n用户补充：${input.trim()}`,
   },
   phase: task.changedPaths.length > 0 ? "execute" : "investigate",
+  repeatedToolCalls: 0,
+  lastToolSignature: undefined,
   budget: {
     ...task.budget,
     totalSteps: 0,
