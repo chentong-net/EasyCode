@@ -46,9 +46,11 @@ interface QuestionDraft {
 const QuestionCard = ({
   request,
   onReply,
+  onStop,
 }: {
   request: QuestionRequest
   onReply: (requestID: string, answers: QuestionAnswer[]) => Promise<void>
+  onStop: () => Promise<void>
 }) => {
   const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({})
   const [submitting, setSubmitting] = useState(false)
@@ -113,44 +115,58 @@ const QuestionCard = ({
 
   return (
     <div className="question-card">
-      <div className="question-kicker">{request.source === "checkpoint" ? "执行检查点" : "需要你的确认"}</div>
-      <div className="question-title">{request.title}</div>
-      {request.questions.map((question) => {
-        const draft = draftOf(question)
-        return (
-          <div className="question-item" key={question.id}>
-            <div className="question-header">{question.header}</div>
-            <div className="question-text">{question.question}</div>
-            <div className="question-options">
-              {question.options.map((option) => {
-                const selected = draft.selected.includes(option.label)
-                return (
-                  <label className={`question-option${selected ? " question-option-selected" : ""}`} key={option.label}>
-                    <input
-                      type={question.multiple === true ? "checkbox" : "radio"}
-                      name={`${request.id}-${question.id}`}
-                      checked={selected}
-                      onChange={() => choose(question, option.label)}
-                    />
-                    <span>
-                      <strong>{option.label}</strong>
-                      {option.description && <small>{option.description}</small>}
-                    </span>
-                  </label>
-                )
-              })}
+      <div className="question-heading">
+        <div className="question-kicker">{request.source === "checkpoint" ? "执行检查点" : "需要你的确认"}</div>
+        {request.title !== "需要你的确认" && <div className="question-title">{request.title}</div>}
+      </div>
+      <div className="question-body">
+        {request.questions.map((question, index) => {
+          const draft = draftOf(question)
+          return (
+            <div className="question-item" key={question.id}>
+              <div className="question-item-heading">
+                <div className="question-header">{question.header}</div>
+                {request.questions.length > 1 && (
+                  <span className="question-progress">
+                    {index + 1}/{request.questions.length}
+                  </span>
+                )}
+              </div>
+              <div className="question-text">{question.question}</div>
+              <div className="question-options">
+                {question.options.map((option) => {
+                  const selected = draft.selected.includes(option.label)
+                  return (
+                    <label className={`question-option${selected ? " question-option-selected" : ""}`} key={option.label}>
+                      <input
+                        type={question.multiple === true ? "checkbox" : "radio"}
+                        name={`${request.id}-${question.id}`}
+                        checked={selected}
+                        onChange={() => choose(question, option.label)}
+                      />
+                      <span>
+                        <strong>{option.label}</strong>
+                        {option.description && <small>{option.description}</small>}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              <input
+                className="question-custom"
+                value={draft.custom}
+                onChange={(event) => setCustom(question, event.target.value)}
+                placeholder="也可以直接输入其他答案"
+                aria-label={`${question.header}的其他答案`}
+              />
             </div>
-            <input
-              className="question-custom"
-              value={draft.custom}
-              onChange={(event) => setCustom(question, event.target.value)}
-              placeholder="也可以直接输入其他答案"
-              aria-label={`${question.header}的其他答案`}
-            />
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
       <div className="question-actions">
+        <button type="button" className="btn btn-danger" onClick={() => void onStop()}>
+          停止任务
+        </button>
         <button type="button" className="btn" disabled={!complete || submitting} onClick={() => void submit()}>
           {submitting ? "提交中…" : "提交回答"}
         </button>
@@ -348,17 +364,19 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
             key={request.id}
             request={request}
             onReply={store.replyQuestion}
+            onStop={store.interrupt}
           />
         ))}
-        <Composer
-          running={store.running}
-          inputDisabled={store.pendingQuestions.length > 0}
-          onSend={async (text) => {
-            stickToBottom.current = true
-            await store.send(text)
-          }}
-          onStop={store.interrupt}
-        />
+        {store.pendingQuestions.length === 0 && (
+          <Composer
+            running={store.running}
+            onSend={async (text) => {
+              stickToBottom.current = true
+              await store.send(text)
+            }}
+            onStop={store.interrupt}
+          />
+        )}
       </div>
     </section>
   )
