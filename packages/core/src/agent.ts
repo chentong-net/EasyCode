@@ -55,9 +55,8 @@ const BUILTIN_AGENTS: Agent[] = [
     id: DEFAULT_AGENT_ID,
     description: "默认的编码助手，可以读写文件并执行命令",
     system: BUILD_SYSTEM_PROMPT,
-    // 30 个 provider turn（模型调用轮次）足够完成绝大多数编码任务；达到上限后会禁用工具强制收尾，
-    // 避免模型陷入「反复读同一个文件」的死循环
-    steps: 30,
+    // 30 步只作为向用户确认是否继续的检查点，不再终止长任务。
+    checkpointSteps: 30,
     permissions: [
       // 兜底：默认允许
       { action: "*", resource: "*", effect: "allow" },

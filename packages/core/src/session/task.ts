@@ -14,7 +14,12 @@ import type {
  * 这里不做额外的模型调用，也不试图精确理解所有意图。它只提供一个稳定的
  * 工作记忆骨架，模型仍可通过后续工具和最终回复补充细节。
  */
-export const createTaskState = (input: string, timestamp: number, stepLimit = 30): TaskState => ({
+export const createTaskState = (
+  input: string,
+  timestamp: number,
+  checkpointSteps = 30,
+  hardSteps?: number,
+): TaskState => ({
   version: 1,
   contract: inferTaskContract(input),
   phase: "investigate",
@@ -25,8 +30,11 @@ export const createTaskState = (input: string, timestamp: number, stepLimit = 30
   repeatedToolCalls: 0,
   mutationRevision: 0,
   budget: {
-    softSteps: Math.max(1, Math.floor(stepLimit * 0.7)),
-    hardSteps: stepLimit,
+    softSteps: Math.max(1, Math.floor(checkpointSteps * 0.7)),
+    // hardSteps 保留为兼容字段；没有配置硬上限时与当前检查点窗口相同。
+    hardSteps: hardSteps ?? checkpointSteps,
+    checkpointSteps,
+    totalSteps: 0,
     usedSteps: 0,
     exhausted: false,
     extensions: 0,
@@ -78,6 +86,20 @@ export const amendTask = (task: TaskState, input: string): TaskState => ({
   phase: task.changedPaths.length > 0 ? "execute" : "investigate",
   budget: {
     ...task.budget,
+    totalSteps: 0,
+    usedSteps: 0,
+    exhausted: false,
+    extensions: task.budget.extensions + 1,
+  },
+})
+
+/** 用户批准续行后开启新的步骤窗口，并清除上一窗口的重复调用状态。 */
+export const resumeTask = (task: TaskState): TaskState => ({
+  ...task,
+  repeatedToolCalls: 0,
+  lastToolSignature: undefined,
+  budget: {
+    ...task.budget,
     usedSteps: 0,
     exhausted: false,
     extensions: task.budget.extensions + 1,
@@ -109,7 +131,7 @@ export const renderTaskState = (task: TaskState): string => {
     ...task.contract.constraints.map((item) => `- ${item}`),
     `修改文件：${task.changedPaths.length > 0 ? task.changedPaths.join("、") : "无"}`,
     `验证状态：${task.verificationStatus}`,
-    `步骤预算：${task.budget.usedSteps}/${task.budget.hardSteps}（软上限 ${task.budget.softSteps}）`,
+    `步骤窗口：${task.budget.usedSteps}/${task.budget.checkpointSteps}（累计 ${task.budget.totalSteps}，软上限 ${task.budget.softSteps}）`,
   ]
 
   if (task.verifications.length > 0) {
@@ -169,7 +191,7 @@ export const taskMemorySummary = (task: TaskState | undefined): string => {
     `阶段：${task.phase}`,
     `修改文件：${task.changedPaths.join("、") || "无"}`,
     `验证状态：${task.verificationStatus}`,
-    `步骤预算：${task.budget.usedSteps}/${task.budget.hardSteps}`,
+    `步骤窗口：${task.budget.usedSteps}/${task.budget.checkpointSteps}（累计 ${task.budget.totalSteps}）`,
     ...task.verifications.slice(-3).map((item) => `验证：${item.status} ${item.summary}`),
     ...(task.lastObservation ? [`最近观察：${task.lastObservation}`] : []),
   ].join("\n")

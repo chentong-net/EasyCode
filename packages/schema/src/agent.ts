@@ -17,10 +17,15 @@ export const Agent = z.object({
   /** 系统提示词。它会被拼在 baseline（基线）之前，属于请求的最前缀部分 */
   system: z.string(),
   /**
-   * 单个回合内允许的最大 provider turn（模型调用轮次）数。
-   * 达到上限后会禁用工具并追加一条收尾提示，强制模型给出最终答复。
+   * 可选的 provider turn（模型调用轮次）安全上限。
+   * 不设置时不会因为固定步数结束；达到上限后仍会禁用工具并强制收尾。
    */
-  steps: z.number().int().positive(),
+  steps: z.number().int().positive().optional(),
+  /**
+   * 每隔多少个 provider turn 向用户确认是否继续。
+   * 这是续行检查点，不是任务终止条件。
+   */
+  checkpointSteps: z.number().int().positive().optional(),
   /** 该 agent 的权限规则集，按顺序求值，最后一条匹配的规则生效 */
   permissions: z.array(PermissionRule),
 })

@@ -12,7 +12,7 @@ import { addUsage } from "@easycode/schema"
 import { resolveAgent, type AgentRegistry } from "../agent.js"
 import type { CoreConfig } from "../config.js"
 import { PermissionDeclinedError } from "../errors.js"
-import { newMessageID } from "../id.js"
+import { newInputID, newMessageID } from "../id.js"
 import { describeError, isAbortError, LLMError } from "../llm/error.js"
 import type { LLMClient, LLMRequest } from "../llm/types.js"
 import { createLogger, type Logger } from "../log.js"
@@ -23,7 +23,14 @@ import type { SystemContextManager } from "../session/context.js"
 import { buildLLMMessages } from "../session/history.js"
 import { pendingInputList, type ProjectedState } from "../session/projector.js"
 import { DEFAULT_SESSION_TITLE, type RunDriver, type SessionHandle, type SessionManager } from "../session/runtime.js"
-import { amendTask, createTaskState, finishTask, moveTaskPhase, recordVerification } from "../session/task.js"
+import {
+  amendTask,
+  createTaskState,
+  finishTask,
+  moveTaskPhase,
+  recordVerification,
+  resumeTask,
+} from "../session/task.js"
 import type { EventHub } from "../events.js"
 import type { ToolRegistry } from "../tool/registry.js"
 
@@ -173,14 +180,33 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     try {
       while (!controller.signal.aborted) {
         let step = 1
+        let totalSteps = 1
+        let forceFinal = false
         let needsContinuation = true
 
         while (needsContinuation) {
           if (controller.signal.aborted) break
 
-          const result = await runTurn({ handle, agent, controller, step, promotion })
+          const checkpointSteps = agent.checkpointSteps ?? 30
+          if (step > checkpointSteps && !hasPendingInput(handle.state, "steer")) {
+            const decision = await runCheckpoint(handle, totalSteps, checkpointSteps, controller.signal)
+            step = 1
+            forceFinal = decision === "stop"
+          }
+
+          const result = await runTurn({
+            handle,
+            agent,
+            controller,
+            step,
+            totalSteps,
+            forceFinal,
+            promotion,
+          })
           needsContinuation = result.needsContinuation
           step = result.step + 1
+          totalSteps += 1
+          forceFinal = false
 
           // 一轮内的后续 provider turn 都按插话方式转为可见消息：
           // 新输入会重置步数预算，因为它很可能改变了任务方向
@@ -215,6 +241,9 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     agent: Agent
     controller: AbortController
     step: number
+    totalSteps: number
+    /** 用户选择停止或系统达到安全上限后，只允许输出最终文本。 */
+    forceFinal: boolean
     promotion: Delivery | undefined
     /** 是否已经因为 compaction（压缩）重建过请求，避免同一步里反复执行 */
     compactedOnce?: boolean
@@ -227,6 +256,88 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     step: number
   }
 
+  /**
+   * 在步骤窗口结束时询问用户是否继续。
+   *
+   * 这里由 Runner 主动发起，而不是依赖模型是否愿意调用 question，确保长任务
+   * 一定会经过人工确认点。回答会作为普通用户消息写入历史，让模型在续行时看到。
+   */
+  const runCheckpoint = async (
+    handle: SessionHandle,
+    totalSteps: number,
+    checkpointSteps: number,
+    signal: AbortSignal,
+  ): Promise<"continue" | "stop"> => {
+    const completedSteps = Math.max(0, totalSteps - 1)
+    const answers = await deps.questions.ask({
+      handle,
+      source: "checkpoint",
+      title: `已连续执行 ${completedSteps} 个模型步骤`,
+      questions: [
+        {
+          id: "continue",
+          header: "是否继续",
+          question: `当前步骤窗口为 ${checkpointSteps} 步。是否继续执行剩余工作？`,
+          options: [
+            { label: CHECKPOINT_CONTINUE_LABEL, description: "开启新的步骤窗口" },
+            { label: CHECKPOINT_STOP_LABEL, description: "停止工具调用并生成当前进度总结" },
+          ],
+        },
+      ],
+      signal,
+    })
+
+    const answer = answers[0]
+    const custom = answer?.custom?.trim()
+    const skipped = answer?.skipped === true
+    const stopped = skipped || (custom === undefined && answer?.selected.includes(CHECKPOINT_STOP_LABEL) === true)
+    const text = stopped
+      ? custom || CHECKPOINT_STOP_LABEL
+      : custom || answer?.selected.join("、") || CHECKPOINT_CONTINUE_LABEL
+
+    const inputID = newInputID()
+    const messageID = newMessageID()
+    await handle.append({
+      type: "input.admitted",
+      sessionID: handle.id,
+      timestamp: Date.now(),
+      inputID,
+      text,
+      delivery: "steer",
+    })
+    await handle.append({
+      type: "input.promoted",
+      sessionID: handle.id,
+      timestamp: Date.now(),
+      inputID,
+      messageID,
+    })
+
+    const task = handle.state.task
+    if (task && !task.outcome) {
+      if (stopped) {
+        await appendTask(
+          handle,
+          finishTask(task, {
+            status: "partial",
+            summary: custom || `用户在第 ${completedSteps} 个模型步骤后选择停止。`,
+            remaining: ["用户选择停止，剩余工作未继续执行。"],
+            timestamp: Date.now(),
+          }),
+        )
+      } else {
+        await appendTask(handle, resumeTask(task))
+      }
+    }
+
+    logger.info("用户回应了步骤检查点", {
+      sessionID: handle.id,
+      completedSteps,
+      decision: stopped ? "stop" : "continue",
+    })
+    return stopped ? "stop" : "continue"
+  }
+
   const runTurn = async (params: TurnParams): Promise<TurnResult> => {
     const { handle, agent } = params
     const session = handle.state.session
@@ -235,19 +346,22 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     // 1. 将待处理输入转为可见消息。有输入完成转换时重置步数预算。
     const promoted = await promoteInputs(handle, params.promotion)
     const step = promoted.count > 0 ? 1 : params.step
-    await ensureTask(handle, promoted.texts, agent.steps)
-    await updateTaskBudget(handle, step, agent.steps)
+    const checkpointSteps = agent.checkpointSteps ?? 30
+    const isHardLimit = agent.steps !== undefined && params.totalSteps >= agent.steps
+    const isFinal = params.forceFinal || isHardLimit
+    await ensureTask(handle, promoted.texts, checkpointSteps, agent.steps)
+    await updateTaskBudget(handle, step, params.totalSteps, checkpointSteps, agent.steps, isHardLimit)
 
     // 2. 系统上下文。首次进入会渲染并冻结 baseline（基线），之后只做变化比对。
     const systemContext = await deps.context.ensure(handle)
 
     // 3. 组装请求：历史 + 工具定义 + 系统提示词（agent 提示词在前，baseline 在后）
     const messages = buildLLMMessages(handle.state, { baselineSeq: systemContext.baselineSeq })
-    const isLastStep = step >= agent.steps
-    const tools = isLastStep ? [] : deps.tools.definitions()
+    const tools = isFinal ? [] : deps.tools.definitions()
     const system = [agent.system, systemContext.baseline].filter((part) => part.length > 0)
-    if (isLastStep) system.push(MAX_STEPS_PROMPT)
-    else if (step >= (handle.state.task?.budget.softSteps ?? agent.steps)) system.push(SOFT_STEPS_PROMPT)
+    if (isHardLimit) system.push(MAX_STEPS_PROMPT)
+    else if (params.forceFinal) system.push(CHECKPOINT_STOP_PROMPT)
+    else if (step >= (handle.state.task?.budget.softSteps ?? checkpointSteps)) system.push(SOFT_STEPS_PROMPT)
 
     // 4. compaction（压缩）检查。执行过后重建请求（baseline 会换成新 epoch 的版本）。
     if (params.compactedOnce !== true) {
@@ -257,7 +371,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
         system,
         tools,
         messages,
-        ...(isLastStep ? { toolChoice: "none" as const } : {}),
+        ...(isFinal ? { toolChoice: "none" as const } : {}),
         signal,
       })
       if (compacted.status === "completed") {
@@ -280,12 +394,16 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       messages,
       tools,
       maxOutputTokens: deps.compaction.budget().outputTokens,
-      ...(isLastStep ? { toolChoice: "none" as const } : {}),
+      ...(isFinal ? { toolChoice: "none" as const } : {}),
       sessionID: session.id,
     }
 
-    if (isLastStep) {
-      logger.info("已达到步数上限，本轮禁用工具以强制收尾", { sessionID: session.id, steps: agent.steps })
+    if (isFinal) {
+      logger.info("本轮只允许文本收尾", {
+        sessionID: session.id,
+        reason: isHardLimit ? "hard_limit" : "checkpoint_stop",
+        totalSteps: params.totalSteps,
+      })
     }
 
     if (params.backupAfterID) {
@@ -294,7 +412,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
 
     // 取消信号由 streamTurn 创建：它需要为本轮单独派生一个控制器，
     // 以便「用户拒绝授权」时只取消本轮，而不影响整个回合
-    return streamTurn({ handle, agent, request, step, isLastStep, parentSignal: signal })
+    return streamTurn({ handle, agent, request, step, isLastStep: isFinal, parentSignal: signal })
   }
 
   /* ------------------------------------------------------------------------ */
@@ -545,7 +663,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
                 appendToolSettlement(handle, session.id, {
                   callID: event.callID,
                   status: "error",
-                  error: "已达到本轮的步数上限，该工具调用未执行",
+                  error: "当前回合不允许继续调用工具，该工具调用未执行",
                 }),
               )
               settlementChain = settlement
@@ -1001,14 +1119,19 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     })
   }
 
-  const ensureTask = async (handle: SessionHandle, inputs: string[], stepLimit: number): Promise<void> => {
+  const ensureTask = async (
+    handle: SessionHandle,
+    inputs: string[],
+    checkpointSteps: number,
+    hardSteps: number | undefined,
+  ): Promise<void> => {
     if (inputs.length === 0) return
 
     const current = handle.state.task
     if (!current || current.outcome) {
       const first = inputs[0]
       if (first === undefined) return
-      await appendTask(handle, createTaskState(first, Date.now(), stepLimit))
+      await appendTask(handle, createTaskState(first, Date.now(), checkpointSteps, hardSteps))
       return
     }
 
@@ -1017,19 +1140,35 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     await appendTask(handle, amended)
   }
 
-  const updateTaskBudget = async (handle: SessionHandle, step: number, hardSteps: number): Promise<void> => {
+  const updateTaskBudget = async (
+    handle: SessionHandle,
+    step: number,
+    totalSteps: number,
+    checkpointSteps: number,
+    hardSteps: number | undefined,
+    exhausted: boolean,
+  ): Promise<void> => {
     const task = handle.state.task
     if (!task || task.outcome) return
     const budget = task.budget
-    const exhausted = step >= hardSteps
-    if (budget.usedSteps === step && budget.hardSteps === hardSteps && budget.exhausted === exhausted) return
+    if (
+      budget.usedSteps === step &&
+      budget.totalSteps === totalSteps &&
+      budget.checkpointSteps === checkpointSteps &&
+      budget.hardSteps === (hardSteps ?? checkpointSteps) &&
+      budget.exhausted === exhausted
+    ) {
+      return
+    }
     await appendTask(handle, {
       ...task,
       budget: {
         ...budget,
-        hardSteps,
-        softSteps: Math.max(1, Math.floor(hardSteps * 0.7)),
+        hardSteps: hardSteps ?? checkpointSteps,
+        checkpointSteps,
+        softSteps: Math.max(1, Math.floor(checkpointSteps * 0.7)),
         usedSteps: step,
+        totalSteps,
         exhausted,
       },
     })
@@ -1245,6 +1384,18 @@ const MAX_STEPS_PROMPT = `当前任务已经达到步数上限。工具已经禁
 4. 用户下一步可以采取的行动。
 
 不要宣称未执行或未验证的工作已经完成。`
+
+const CHECKPOINT_STOP_PROMPT = `用户已经选择停止继续执行。工具已经禁用，请根据当前任务状态输出文本总结。
+
+最终回复必须明确包含：
+1. 已经完成的工作和验证结果。
+2. 尚未完成、存在风险或无法验证的内容。
+3. 用户下一步可以采取的行动。
+
+不要宣称未执行或未验证的工作已经完成。`
+
+const CHECKPOINT_CONTINUE_LABEL = "继续执行（推荐）"
+const CHECKPOINT_STOP_LABEL = "停止并总结"
 
 const SOFT_STEPS_PROMPT = `任务已经接近步数软上限。请立即评估当前进度：
 - 优先完成关键步骤，不要继续无目的的重复读取。

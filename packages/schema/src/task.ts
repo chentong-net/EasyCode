@@ -72,6 +72,10 @@ export type TaskOutcome = z.infer<typeof TaskOutcome>
 export const TaskBudget = z.object({
   softSteps: z.number().int().positive(),
   hardSteps: z.number().int().positive(),
+  /** 当前续行窗口的检查点间隔。 */
+  checkpointSteps: z.number().int().positive().default(30),
+  /** 当前回合累计经过的 provider turn，跨检查点继续累加。 */
+  totalSteps: z.number().int().nonnegative().default(0),
   usedSteps: z.number().int().nonnegative(),
   exhausted: z.boolean(),
   extensions: z.number().int().nonnegative(),
@@ -98,6 +102,8 @@ export const TaskState = z.object({
   budget: TaskBudget.default({
     softSteps: 20,
     hardSteps: 30,
+    checkpointSteps: 30,
+    totalSteps: 0,
     usedSteps: 0,
     exhausted: false,
     extensions: 0,
