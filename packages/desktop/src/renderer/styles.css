@@ -136,8 +136,7 @@ pre {
   flex-direction: column;
   gap: 8px;
   flex: none;
-  /* 与滚动区 10px 内边距和稳定滚动条 gutter 的总宽度保持一致。 */
-  padding: 10px calc(10px + var(--sidebar-scrollbar-width)) 12px 12px;
+  padding: 10px 12px 12px;
 }
 
 .workspace-section-header {
@@ -328,6 +327,8 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 9px;
+  width: 100%;
+  margin-inline: auto;
   padding: 10px;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -340,13 +341,20 @@ pre {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
   font-size: 13px;
   font-weight: 500;
+}
+
+.session-selection-summary > span {
+  flex: 1;
+  min-width: 0;
 }
 
 .session-selection-summary .workspace-add-button {
   width: 24px;
   height: 24px;
+  flex: none;
 }
 
 .session-selection-actions {
@@ -361,6 +369,7 @@ pre {
   justify-content: center;
   gap: 5px;
   height: 30px;
+  width: 100%;
   padding: 0 8px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
