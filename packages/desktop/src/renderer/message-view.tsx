@@ -175,7 +175,7 @@ const messageText = (message: Message): string => {
   if (message.role === "assistant") {
     return [
       ...message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])),
-      ...(message.error ? [`⚠️ ${message.error}`] : []),
+      ...(message.error ? [message.error] : []),
     ].join("\n\n")
   }
   if (message.role === "user") {
@@ -198,7 +198,7 @@ export const MessageView = ({ message }: { message: Message }) => {
   return (
     <article className="message message-assistant" data-message-id={message.id}>
       <AssistantParts message={message} />
-      {message.error !== undefined && <div className="message-error">⚠️ {message.error}</div>}
+      {message.error !== undefined && <div className="message-error">{message.error}</div>}
       {message.completedAt === undefined && (
         <div className="message-running" aria-label="正在生成">
           <span />
