@@ -10,6 +10,7 @@ import {
 } from "@easycode/core"
 import {
   API_VERSION,
+  BulkDeleteSessionsRequest,
   CreateWorkspaceRequest,
   CreateSessionRequest,
   Endpoints,
@@ -192,6 +193,13 @@ const handleRequest = async (
     throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
   }
 
+  if (rest.length === 1 && rest[0] === "bulk-delete") {
+    if (method !== "POST") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+    const body = parseBody(BulkDeleteSessionsRequest, await readJSON(req))
+    sendJSON(res, 200, await core.sessions.deleteMany(body.sessionIDs))
+    return
+  }
+
   // ---- /api/sessions/:id/... ----
 
   const sessionID = decodeURIComponent(rest[0] as string)
@@ -367,6 +375,7 @@ export const describeEndpoints = (): string[] => [
   `POST ${Endpoints.pinWorkspace(":id")}`,
   `GET  ${Endpoints.sessions()}`,
   `POST ${Endpoints.sessions()}`,
+  `POST ${Endpoints.bulkDeleteSessions()}`,
   `GET  ${Endpoints.session(":id")}`,
   `PATCH ${Endpoints.renameSession(":id")}`,
   `DELETE ${Endpoints.session(":id")}`,

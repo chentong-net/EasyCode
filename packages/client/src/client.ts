@@ -1,5 +1,7 @@
 import {
   AgentListResponse,
+  BulkDeleteSessionsRequest,
+  BulkDeleteSessionsResponse,
   CreateWorkspaceRequest,
   DeleteWorkspaceResponse,
   Endpoints,
@@ -99,6 +101,7 @@ export interface EasyCodeClient {
     rename(sessionID: string, input: RenameSessionRequest, signal?: AbortSignal): Promise<Session>
     pin(sessionID: string, input: PinSessionRequest, signal?: AbortSignal): Promise<Session>
     delete(sessionID: string, signal?: AbortSignal): Promise<void>
+    deleteMany(sessionIDs: string[], signal?: AbortSignal): Promise<z.infer<typeof BulkDeleteSessionsResponse>>
     messages(sessionID: string, signal?: AbortSignal): Promise<Message[]>
     /** 提交输入。接口只负责接纳，执行进度通过事件流反馈。 */
     prompt(sessionID: string, input: PromptRequest, signal?: AbortSignal): Promise<PromptResponse>
@@ -174,6 +177,15 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
       delete: async (sessionID, signal) => {
         await requestDelete(transport, Endpoints.session(sessionID), signal)
       },
+
+      deleteMany: (sessionIDs, signal) =>
+        post(
+          transport,
+          Endpoints.bulkDeleteSessions(),
+          { sessionIDs } satisfies BulkDeleteSessionsRequest,
+          BulkDeleteSessionsResponse,
+          signal,
+        ),
 
       messages: (sessionID, signal) => get(transport, Endpoints.messages(sessionID), MessageListResponse, signal),
 

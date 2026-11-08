@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.4.0"
+export const API_VERSION = "0.5.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -60,6 +60,9 @@ export const Endpoints = {
 
   /** 会话集合：GET 列表 / POST 创建 */
   sessions: (): string => `${API_PREFIX}/sessions`,
+
+  /** 批量删除会话 */
+  bulkDeleteSessions: (): string => `${API_PREFIX}/sessions/bulk-delete`,
 
   /** 单个会话：GET 详情 */
   session: (sessionID: string): string => sessionPath(sessionID),

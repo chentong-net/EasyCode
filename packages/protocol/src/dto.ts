@@ -167,6 +167,25 @@ export const PromptResponse = z.object({
 
 export type PromptResponse = z.infer<typeof PromptResponse>
 
+/** 批量删除会话；Core 会对重复 ID 再次去重。 */
+export const BulkDeleteSessionsRequest = z.object({
+  sessionIDs: z.array(z.string().trim().min(1)).min(1).max(500),
+})
+
+export type BulkDeleteSessionsRequest = z.infer<typeof BulkDeleteSessionsRequest>
+
+export const BulkDeleteSessionsResponse = z.object({
+  deleted: z.array(z.string()),
+  failed: z.array(
+    z.object({
+      sessionID: z.string(),
+      error: z.string(),
+    }),
+  ),
+})
+
+export type BulkDeleteSessionsResponse = z.infer<typeof BulkDeleteSessionsResponse>
+
 /** 通用成功响应，用于中断这类没有返回内容的操作。 */
 export const OkResponse = z.object({
   ok: z.literal(true),

@@ -69,6 +69,8 @@ export interface SessionManager {
   rename(sessionID: string, title: string): Promise<Session>
   /** 永久删除会话；运行中的会话会先被中断。 */
   delete(sessionID: string): Promise<void>
+  /** 批量删除会话并返回逐项结果。单项失败不会阻止其它删除。 */
+  deleteMany(sessionIDs: string[]): Promise<DeleteSessionsResult>
   isRunning(sessionID: string): boolean
   /** 取出会话句柄（必要时从磁盘加载） */
   handle(sessionID: string): Promise<SessionHandle>
@@ -76,6 +78,11 @@ export interface SessionManager {
   setRunDriver(driver: RunDriver): void
   /** 关闭：中止所有运行中的回合 */
   shutdown(): Promise<void>
+}
+
+export interface DeleteSessionsResult {
+  deleted: string[]
+  failed: Array<{ sessionID: string; error: string }>
 }
 
 export const createSessionManager = (deps: SessionManagerDeps): SessionManager => {
@@ -276,6 +283,31 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     return { inputID }
   }
 
+  const remove = async (sessionID: string): Promise<void> => {
+    const session = await deps.store.readSession(sessionID)
+    if (!session) throw new Error(`会话不存在：${sessionID}`)
+    if (driver?.isRunning(sessionID)) await driver.interrupt(sessionID)
+    await deps.store.deleteSession(sessionID)
+    handles.delete(sessionID)
+    logger.info("已删除会话", { sessionID })
+  }
+
+  const deleteMany = async (sessionIDs: string[]): Promise<DeleteSessionsResult> => {
+    const deleted: string[] = []
+    const failed: Array<{ sessionID: string; error: string }> = []
+    const unique = [...new Set(sessionIDs)]
+    for (const sessionID of unique) {
+      try {
+        await remove(sessionID)
+        deleted.push(sessionID)
+      } catch (error) {
+        failed.push({ sessionID, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    logger.info("批量删除会话结束", { requested: unique.length, deleted: deleted.length, failed: failed.length })
+    return { deleted, failed }
+  }
+
   return {
     list: () => deps.store.list(),
     create,
@@ -308,12 +340,8 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       })
       return handle.state.session
     },
-    delete: async (sessionID) => {
-      if (driver?.isRunning(sessionID)) await driver.interrupt(sessionID)
-      await deps.store.deleteSession(sessionID)
-      handles.delete(sessionID)
-      logger.info("已删除会话", { sessionID })
-    },
+    delete: remove,
+    deleteMany,
     isRunning: (sessionID) => driver?.isRunning(sessionID) ?? false,
     handle: load,
     setRunDriver: (next) => {
