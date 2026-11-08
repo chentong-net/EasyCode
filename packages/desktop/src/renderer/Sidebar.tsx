@@ -4,11 +4,13 @@ import {
   ChevronRight,
   Folder,
   FolderPlus,
+  ListChecks,
   Pencil,
   Pin,
   PinOff,
   Plus,
   Trash2,
+  X,
 } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -29,6 +31,9 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
   const [renameDraft, setRenameDraft] = useState("")
   const [renamingSessionID, setRenamingSessionID] = useState<string | undefined>()
   const [sessionRenameDraft, setSessionRenameDraft] = useState("")
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedSessionIDs, setSelectedSessionIDs] = useState<Set<string>>(() => new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const renameTarget = useRef<string | undefined>(undefined)
   const sessionRenameTarget = useRef<string | undefined>(undefined)
@@ -38,6 +43,13 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
   const menuWorkspace =
     menu?.kind === "workspace" ? workspace.workspaces.find((item) => item.id === menu.workspaceID) : undefined
   const sessionsByDirectory = useMemo(() => groupSessions(store.allSessions), [store.allSessions])
+  const activeSessions = useMemo(
+    () =>
+      workspace.activeWorkspace === undefined
+        ? []
+        : (sessionsByDirectory.get(workspace.activeWorkspace.directory) ?? []),
+    [sessionsByDirectory, workspace.activeWorkspace],
+  )
 
   useEffect(() => {
     if (!menu) return
@@ -86,6 +98,20 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     })
   }, [store.currentSession?.directory, workspace.workspaces])
 
+  useEffect(() => {
+    setSelectionMode(false)
+    setSelectedSessionIDs(new Set())
+  }, [workspace.activeWorkspace?.id])
+
+  useEffect(() => {
+    if (!selectionMode) return
+    const available = new Set(activeSessions.map((session) => session.id))
+    setSelectedSessionIDs((current) => {
+      const next = new Set([...current].filter((id) => available.has(id)))
+      return next.size === current.size ? current : next
+    })
+  }, [activeSessions, selectionMode])
+
   const toggleWorkspace = (workspaceID: string): void => {
     setCollapsed((previous) => {
       const next = new Set(previous)
@@ -97,6 +123,10 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
 
   const selectWorkspace = (workspaceID: string): void => {
     workspace.selectWorkspace(workspaceID)
+    if (workspaceID !== workspace.activeWorkspace?.id) {
+      setSelectionMode(false)
+      setSelectedSessionIDs(new Set())
+    }
     setCollapsed((current) => {
       if (!current.has(workspaceID)) return current
       const next = new Set(current)
@@ -177,6 +207,48 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     await store.renameSession(sessionID, title)
   }
 
+  const exitSelection = (): void => {
+    setSelectionMode(false)
+    setSelectedSessionIDs(new Set())
+  }
+
+  const toggleSelectedSession = (sessionID: string): void => {
+    setSelectedSessionIDs((current) => {
+      const next = new Set(current)
+      if (next.has(sessionID)) next.delete(sessionID)
+      else next.add(sessionID)
+      return next
+    })
+  }
+
+  const toggleSelectAll = (): void => {
+    setSelectedSessionIDs((current) =>
+      current.size === activeSessions.length ? new Set() : new Set(activeSessions.map((session) => session.id)),
+    )
+  }
+
+  const deleteSelectedSessions = async (): Promise<void> => {
+    if (selectedSessionIDs.size === 0 || bulkDeleting) return
+    if (
+      !window.confirm(
+        `确定永久删除选中的 ${selectedSessionIDs.size} 个会话及其全部聊天记录吗？\n\n正在运行的会话会先被中断。`,
+      )
+    ) {
+      return
+    }
+
+    setBulkDeleting(true)
+    try {
+      const result = await store.deleteSessions([...selectedSessionIDs])
+      if (result.failed.length === 0) exitSelection()
+      else setSelectedSessionIDs(new Set(result.failed.map((item) => item.sessionID)))
+    } catch {
+      // Store 已经展示具体错误，保留当前选择便于重试。
+    } finally {
+      setBulkDeleting(false)
+    }
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
@@ -184,30 +256,86 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
       </div>
 
       <div className="sidebar-top">
-        <button
-          type="button"
-          className="new-session-button"
-          onClick={store.startNewSession}
-          disabled={!hasWorkspace}
-          title={hasWorkspace ? "在当前工作区中新建会话" : "请先添加工作区"}
-        >
-          <Plus size={16} strokeWidth={2} />
-          <span>新会话</span>
-        </button>
+        {selectionMode ? (
+          <div className="session-selection-toolbar">
+            <div className="session-selection-summary">
+              <span>已选 {selectedSessionIDs.size} 个会话</span>
+              <button
+                type="button"
+                className="workspace-add-button"
+                onClick={exitSelection}
+                aria-label="退出多选"
+                title="退出多选"
+              >
+                <X size={15} strokeWidth={1.8} />
+              </button>
+            </div>
+            <div className="session-selection-actions">
+              <button type="button" className="selection-action-button" onClick={toggleSelectAll}>
+                {selectedSessionIDs.size === activeSessions.length ? "取消全选" : "全选"}
+              </button>
+              <button
+                type="button"
+                className="selection-action-button selection-action-danger"
+                onClick={() => void deleteSelectedSessions()}
+                disabled={selectedSessionIDs.size === 0 || bulkDeleting}
+              >
+                <Trash2 size={14} strokeWidth={1.8} />
+                {bulkDeleting ? "删除中…" : "删除"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="new-session-button"
+            onClick={store.startNewSession}
+            disabled={!hasWorkspace}
+            title={hasWorkspace ? "在当前工作区中新建会话" : "请先添加工作区"}
+          >
+            <Plus size={16} strokeWidth={2} />
+            <span>新会话</span>
+          </button>
+        )}
       </div>
 
       <div className="workspace-section-header">
         <span>工作区</span>
-        <button
-          type="button"
-          className="workspace-add-button"
-          onClick={() => void workspace.select()}
-          disabled={workspace.selecting}
-          title="添加工作区目录"
-          aria-label="添加工作区目录"
-        >
-          <FolderPlus size={16} strokeWidth={1.8} />
-        </button>
+        <div className="workspace-section-actions">
+          <button
+            type="button"
+            className={`workspace-add-button${selectionMode ? " workspace-add-button-active" : ""}`}
+            onClick={() => {
+              if (selectionMode) exitSelection()
+              else {
+                setSelectionMode(true)
+                setSelectedSessionIDs(new Set())
+                if (workspace.activeWorkspace !== undefined) {
+                  setCollapsed((current) => {
+                    const next = new Set(current)
+                    next.delete(workspace.activeWorkspace!.id)
+                    return next
+                  })
+                }
+              }
+            }}
+            disabled={activeSessions.length === 0}
+            title={selectionMode ? "退出多选" : "多选当前工作区会话"}
+            aria-label={selectionMode ? "退出多选" : "多选当前工作区会话"}
+          >
+            <ListChecks size={16} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            className="workspace-add-button"
+            onClick={() => void workspace.select()}
+            disabled={workspace.selecting}
+            title="添加工作区目录"
+            aria-label="添加工作区目录"
+          >
+            <FolderPlus size={16} strokeWidth={1.8} />
+          </button>
+        </div>
       </div>
 
       <nav className="workspace-list" aria-label="工作区与会话">
@@ -292,6 +420,8 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
                   {sessions.length === 0 && <div className="session-empty">这个工作区还没有会话。</div>}
                   {sessions.map((session) => {
                     const className = `session-item${session.id === store.currentSessionID ? " session-item-active" : ""}`
+                    const selectable = selectionMode && isActive
+                    const selected = selectedSessionIDs.has(session.id)
                     if (renamingSessionID === session.id) {
                       return (
                         <div key={session.id} className={`${className} session-item-editing`}>
@@ -314,6 +444,26 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
                             }}
                           />
                         </div>
+                      )
+                    }
+                    if (selectable) {
+                      return (
+                        <label
+                          key={session.id}
+                          className={`${className} session-item-selection${selected ? " session-item-selected" : ""}`}
+                          title={session.title}
+                        >
+                          <input
+                            className="session-selection-checkbox"
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => toggleSelectedSession(session.id)}
+                          />
+                          <span className="session-title">{session.title}</span>
+                          {session.pinnedAt !== undefined && (
+                            <Pin size={13} strokeWidth={1.8} className="session-pin" aria-label="已置顶" />
+                          )}
+                        </label>
                       )
                     }
                     return (

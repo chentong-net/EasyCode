@@ -1,4 +1,5 @@
 import type { EasyCodeClient } from "@easycode/client"
+import type { BulkDeleteSessionsResponse } from "@easycode/protocol"
 import {
   isDurableEvent,
   type Event,
@@ -78,6 +79,8 @@ export interface EasyCodeStore {
   renameSession(sessionID: string, title: string): Promise<Session | undefined>
   pinSession(sessionID: string, pinned: boolean): Promise<void>
   deleteSession(sessionID: string): Promise<void>
+  /** 批量删除会话，返回逐项结果。 */
+  deleteSessions(sessionIDs: string[]): Promise<BulkDeleteSessionsResponse>
   send(text: string): Promise<void>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
@@ -476,6 +479,33 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     [client, activeSessionID, running],
   )
 
+  const deleteSessions = useCallback(
+    async (sessionIDs: string[]): Promise<BulkDeleteSessionsResponse> => {
+      try {
+        const result = await client.sessions.deleteMany(sessionIDs)
+        const deleted = new Set(result.deleted)
+        setSessions((previous) => previous.filter((session) => !deleted.has(session.id)))
+        if (activeSessionID !== undefined && deleted.has(activeSessionID)) {
+          keepNoSelection.current = true
+          setCurrentSessionID(undefined)
+          setCurrentSession(undefined)
+          setMessages([])
+          setPendingPermissions([])
+          setPendingQuestions([])
+          setRunning(false)
+        }
+        if (result.failed.length > 0) {
+          setError(`有 ${result.failed.length} 个会话删除失败：${result.failed[0]?.error ?? "未知错误"}`)
+        }
+        return result
+      } catch (cause) {
+        setError(describeError(cause))
+        throw cause
+      }
+    },
+    [activeSessionID, client.sessions],
+  )
+
   const send = useCallback(
     async (text: string) => {
       if (workspace === undefined) return
@@ -574,6 +604,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     renameSession,
     pinSession,
     deleteSession,
+    deleteSessions,
     send,
     interrupt,
     replyPermission,
