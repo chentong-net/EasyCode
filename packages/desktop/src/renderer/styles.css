@@ -13,22 +13,22 @@
 
 :root {
   --bg: #ffffff;
-  --bg-panel: #f5f6f4;
-  --bg-hover: #eceeeb;
-  --bg-active: #e8eef9;
-  --bg-code: #f7f8f7;
-  --border: #e7e9e6;
-  --border-strong: #d7dad7;
-  --text: #202420;
-  --text-dim: #636a64;
-  --text-faint: #929a94;
-  --link: #2f66d0;
-  --accent-soft: #edf3ff;
-  --shadow-soft: 0 5px 24px rgba(31, 38, 31, 0.06);
+  --bg-panel: #fafafa;
+  --bg-hover: #f4f4f5;
+  --bg-active: #f4f4f5;
+  --bg-code: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #09090b;
+  --text-dim: #71717a;
+  --text-faint: #a1a1aa;
+  --link: #18181b;
+  --accent-soft: #f4f4f5;
+  --shadow-soft: 0 1px 2px rgba(9, 9, 11, 0.04), 0 5px 20px rgba(9, 9, 11, 0.05);
   --success: #16a34a;
   --danger: #dc2626;
   --warn: #d97706;
-  --radius: 9px;
+  --radius: 10px;
   --sidebar-width: 284px;
   --sidebar-scrollbar-width: 10px;
   --content-max-width: 760px;
@@ -75,14 +75,14 @@ pre {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d8d8d8;
+  background: #d4d4d8;
   border: 3px solid transparent;
   border-radius: 8px;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #bdbdbd;
+  background: #a1a1aa;
   background-clip: content-box;
 }
 
@@ -270,7 +270,7 @@ pre {
 }
 
 .workspace-rename-input:focus {
-  border-color: #b8bec7;
+  border-color: var(--text-faint);
 }
 
 .workspace-path {
@@ -306,17 +306,17 @@ pre {
   width: 100%;
   height: 42px;
   background: var(--accent-soft);
-  border: 1px solid #dbe5f8;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  color: #2c59bd;
+  color: var(--text);
   font-weight: 600;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .new-session-button:hover:not(:disabled) {
-  background: #e4ecfc;
-  border-color: #ccd9f1;
+  background: #e4e4e7;
+  border-color: var(--border-strong);
 }
 
 .new-session-button:disabled {
@@ -442,7 +442,7 @@ pre {
 }
 
 .session-rename-input:focus {
-  border-color: #b8bec7;
+  border-color: var(--text-faint);
 }
 
 .session-pin {
@@ -451,13 +451,13 @@ pre {
 }
 
 .session-item:hover {
-  background: #eceeeb;
+  background: var(--bg-hover);
 }
 
 .session-item-active {
-  background: #e7e9e6;
+  background: var(--bg-active);
   color: var(--text);
-  box-shadow: none;
+  font-weight: 500;
 }
 
 .session-item-selection {
@@ -532,7 +532,7 @@ pre {
   flex: none;
   height: 52px;
   padding: 0 24px;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
@@ -618,8 +618,8 @@ pre {
   max-width: 76%;
   margin-block: 24px;
   padding: 10px 16px;
-  background: #f0f2ef;
-  border: 1px solid #e7e9e6;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
   border-radius: 18px;
 }
 
@@ -819,7 +819,7 @@ pre {
 
 .reasoning {
   padding: 2px 0 2px 12px;
-  border-left: 2px solid #e3e6e2;
+  border-left: 2px solid var(--border);
 }
 
 .reasoning-toggle {
@@ -846,7 +846,7 @@ pre {
 /* -------------------------------------------------------------- 工具卡片 */
 
 .tool-card {
-  background: #fbfcfa;
+  background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -865,7 +865,7 @@ pre {
 }
 
 .tool-header:hover {
-  background: #f5f7f4;
+  background: var(--bg-hover);
 }
 
 .tool-dot {
@@ -999,7 +999,7 @@ pre {
   margin-bottom: 10px;
   padding: 14px 16px;
   background: var(--accent-soft);
-  border: 1px solid #cbd9f4;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   max-height: min(58vh, 540px);
   min-height: 0;
@@ -1036,7 +1036,7 @@ pre {
 .question-item + .question-item {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #d8e2f5;
+  border-top: 1px solid var(--border);
 }
 
 .question-item-heading {
@@ -1076,15 +1076,15 @@ pre {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.55);
-  border: 1px solid #d8e2f5;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border);
   border-radius: 8px;
   cursor: pointer;
 }
 
 .question-option-selected {
   background: var(--bg);
-  border-color: #9bb5e6;
+  border-color: var(--text-faint);
 }
 
 .question-option input {
@@ -1109,7 +1109,7 @@ pre {
   width: 100%;
   padding: 9px 10px;
   background: var(--bg);
-  border: 1px solid #d8e2f5;
+  border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
   font: inherit;
@@ -1117,7 +1117,7 @@ pre {
 }
 
 .question-custom:focus {
-  border-color: #9bb5e6;
+  border-color: var(--text-faint);
 }
 
 .question-actions {
@@ -1128,7 +1128,7 @@ pre {
   gap: 8px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #d8e2f5;
+  border-top: 1px solid var(--border);
 }
 
 /* -------------------------------------------------------------- 输入区域 */
@@ -1139,15 +1139,15 @@ pre {
   gap: 8px;
   padding: 13px 15px 11px;
   background: var(--bg);
-  border: 1px solid #dfe3df;
+  border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow-soft);
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .composer:focus-within {
-  border-color: #cfd7ce;
-  box-shadow: 0 6px 28px rgba(31, 38, 31, 0.08);
+  border-color: var(--text-faint);
+  box-shadow: 0 6px 28px rgba(9, 9, 11, 0.08);
 }
 
 .composer-input {
@@ -1233,7 +1233,7 @@ pre {
 }
 
 .composer-send:disabled {
-  background: #cfcfcf;
+  background: var(--border-strong);
   cursor: default;
 }
 
