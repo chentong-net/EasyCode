@@ -1,6 +1,15 @@
 import { z } from "zod"
 
-import { Delivery, Message, PermissionReply, PermissionRequest, Session, Workspace } from "@easycode/schema"
+import {
+  Delivery,
+  Message,
+  PermissionReply,
+  PermissionRequest,
+  QuestionAnswer,
+  QuestionRequest,
+  Session,
+  Workspace,
+} from "@easycode/schema"
 
 /**
  * HTTP 报文的数据结构。
@@ -178,3 +187,15 @@ export const PermissionReplyRequest = z.object({
 })
 
 export type PermissionReplyRequest = z.infer<typeof PermissionReplyRequest>
+
+/** 待用户回答的问题列表。 */
+export const QuestionListResponse = z.array(QuestionRequest)
+
+export type QuestionListResponse = z.infer<typeof QuestionListResponse>
+
+/** 回答一个待处理问题。答案必须覆盖请求中的每个问题。 */
+export const QuestionReplyRequest = z.object({
+  answers: z.array(QuestionAnswer).min(1),
+})
+
+export type QuestionReplyRequest = z.infer<typeof QuestionReplyRequest>

@@ -4,6 +4,7 @@ import type {
   Message,
   Part,
   PermissionRequest,
+  QuestionRequest,
   Session,
   TaskState,
   ToolState,
@@ -28,6 +29,8 @@ export interface ProjectedState {
   pendingInputs: Map<string, { text: string; delivery: Delivery }>
   /** 待审批的权限请求（已写入日志但还没收到回复的） */
   pendingPermissions: Map<string, PermissionRequest>
+  /** 等待用户回答的问题（工具提问与 Runner 检查点共用） */
+  pendingQuestions: Map<string, QuestionRequest>
   /** 当前任务的显式工作记忆；没有新任务时为 undefined。 */
   task: TaskState | undefined
   /** 由持久事件投影出的最近回合运行状态。 */
@@ -55,6 +58,7 @@ export const createProjectedState = (session: Session): ProjectedState => ({
   messages: [],
   pendingInputs: new Map(),
   pendingPermissions: new Map(),
+  pendingQuestions: new Map(),
   task: undefined,
   running: false,
   activeCompactionID: undefined,
@@ -238,6 +242,23 @@ export const applyEvent = (state: ProjectedState, event: DurableEvent): void => 
 
     case "permission.replied":
       state.pendingPermissions.delete(event.requestID)
+      break
+
+    case "question.asked":
+      state.pendingQuestions.set(event.requestID, {
+        id: event.requestID,
+        sessionID: event.sessionID,
+        source: event.source,
+        title: event.title,
+        ...(event.callID === undefined ? {} : { callID: event.callID }),
+        questions: event.questions,
+        createdAt: event.timestamp,
+      })
+      break
+
+    case "question.replied":
+    case "question.cancelled":
+      state.pendingQuestions.delete(event.requestID)
       break
 
     case "run.started":

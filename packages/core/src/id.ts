@@ -27,6 +27,9 @@ export const newInputID = (): string => createID("in")
 /** 权限审批请求 ID */
 export const newPermissionRequestID = (): string => createID("per")
 
+/** 用户问题请求 ID */
+export const newQuestionRequestID = (): string => createID("q")
+
 /**
  * 工具调用 ID 的兜底生成。
  *

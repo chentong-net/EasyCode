@@ -1,6 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 
-import { calculateCompactionBudget, WorkspaceDeleteError, type Core, type Logger } from "@easycode/core"
+import {
+  calculateCompactionBudget,
+  QuestionAnswerInvalidError,
+  QuestionRequestNotFoundError,
+  WorkspaceDeleteError,
+  type Core,
+  type Logger,
+} from "@easycode/core"
 import {
   API_VERSION,
   CreateWorkspaceRequest,
@@ -11,6 +18,7 @@ import {
   PermissionReplyRequest,
   PromptRequest,
   ProtocolError,
+  QuestionReplyRequest,
   RenameWorkspaceRequest,
   RenameSessionRequest,
   AFTER_QUERY_PARAM,
@@ -276,6 +284,37 @@ const handleRequest = async (
       throw new ProtocolError("not_found", `未知路径：${url.pathname}`)
     }
 
+    case "questions": {
+      if (rest.length === 2) {
+        if (method !== "GET") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+        const handle = await core.sessions.handle(sessionID)
+        sendJSON(res, 200, core.questions.pending(handle))
+        return
+      }
+
+      const requestID = rest[2] === undefined ? undefined : decodeURIComponent(rest[2])
+      if (rest.length === 4 && rest[3] === "reply" && requestID !== undefined) {
+        if (method !== "POST") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+        const body = parseBody(QuestionReplyRequest, await readJSON(req))
+        const handle = await core.sessions.handle(sessionID)
+        try {
+          await core.questions.reply({ handle, requestID, answers: body.answers })
+        } catch (error) {
+          if (error instanceof QuestionRequestNotFoundError) {
+            throw new ProtocolError("not_found", error.message)
+          }
+          if (error instanceof QuestionAnswerInvalidError) {
+            throw new ProtocolError("bad_request", error.message)
+          }
+          throw error
+        }
+        sendJSON(res, 200, { ok: true })
+        return
+      }
+
+      throw new ProtocolError("not_found", `未知路径：${url.pathname}`)
+    }
+
     default:
       throw new ProtocolError("not_found", `未知路径：${url.pathname}`)
   }
@@ -338,4 +377,6 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.events(":id")}`,
   `GET  ${Endpoints.permissions(":id")}`,
   `POST ${Endpoints.permissionReply(":id", ":requestID")}`,
+  `GET  ${Endpoints.questions(":id")}`,
+  `POST ${Endpoints.questionReply(":id", ":requestID")}`,
 ]

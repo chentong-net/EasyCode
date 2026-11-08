@@ -44,6 +44,30 @@ export class PermissionDeclinedError extends Error {
   }
 }
 
+/** 用户问题被中断、进程重启或主动取消，等待中的工具不再继续。 */
+export class QuestionCancelledError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "QuestionCancelledError"
+  }
+}
+
+/** 问题请求不存在或已经处理过。 */
+export class QuestionRequestNotFoundError extends Error {
+  constructor(message = "问题请求不存在或已经处理过了") {
+    super(message)
+    this.name = "QuestionRequestNotFoundError"
+  }
+}
+
+/** 用户提交的回答与问题结构不匹配。 */
+export class QuestionAnswerInvalidError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "QuestionAnswerInvalidError"
+  }
+}
+
 /** 回合被中断。用于把中断与普通失败区分开，避免被当成错误上报。 */
 export class RunInterruptedError extends Error {
   constructor(message = "回合已被中断") {

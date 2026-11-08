@@ -10,6 +10,8 @@ import {
   PinSessionRequest,
   PromptResponse,
   ProtocolError,
+  QuestionListResponse,
+  QuestionReplyRequest,
   RenameWorkspaceRequest,
   RenameSessionRequest,
   SessionListResponse,
@@ -27,6 +29,7 @@ import {
   type Message,
   type PermissionReply,
   type PermissionRequest,
+  type QuestionRequest,
   type Session,
   type Workspace,
 } from "@easycode/schema"
@@ -107,6 +110,13 @@ export interface EasyCodeClient {
       input: { reply: PermissionReply; feedback?: string },
       signal?: AbortSignal,
     ): Promise<void>
+    questions(sessionID: string, signal?: AbortSignal): Promise<QuestionRequest[]>
+    replyQuestion(
+      sessionID: string,
+      requestID: string,
+      input: QuestionReplyRequest,
+      signal?: AbortSignal,
+    ): Promise<void>
     /**
      * 订阅会话事件。惰性：直到被迭代才会发起连接。
      * 连接中断后自动重连并带上 after，界面不需要自己处理断线。
@@ -178,6 +188,13 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
 
       replyPermission: async (sessionID, requestID, input, signal) => {
         await post(transport, Endpoints.permissionReply(sessionID, requestID), input, OkResponseSchema, signal)
+      },
+
+      questions: (sessionID, signal) =>
+        get(transport, Endpoints.questions(sessionID), QuestionListResponse, signal),
+
+      replyQuestion: async (sessionID, requestID, input, signal) => {
+        await post(transport, Endpoints.questionReply(sessionID, requestID), input, OkResponseSchema, signal)
       },
 
       events: (sessionID, streamOptions = {}) => streamSessionEvents(transport, hooks, sessionID, streamOptions),

@@ -164,6 +164,16 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
       })
     }
 
+    for (const request of [...handle.state.pendingQuestions.values()]) {
+      await handle.append({
+        type: "question.cancelled",
+        sessionID: handle.id,
+        timestamp: now,
+        requestID: request.id,
+        reason: "进程重启，该问题已失效",
+      })
+    }
+
     for (const message of handle.state.messages) {
       if (message.role !== "assistant") continue
 

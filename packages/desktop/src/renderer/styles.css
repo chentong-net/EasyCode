@@ -890,6 +890,109 @@ pre {
   gap: 8px;
 }
 
+/* -------------------------------------------------------------- 问题卡片 */
+
+.question-card {
+  margin-bottom: 10px;
+  padding: 14px 16px;
+  background: var(--accent-soft);
+  border: 1px solid #cbd9f4;
+  border-radius: var(--radius);
+}
+
+.question-kicker {
+  margin-bottom: 4px;
+  color: var(--link);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.question-title {
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+
+.question-item + .question-item {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #d8e2f5;
+}
+
+.question-header {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.question-text {
+  margin-bottom: 10px;
+  color: var(--text-dim);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.question-options {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid #d8e2f5;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.question-option-selected {
+  background: var(--bg);
+  border-color: #9bb5e6;
+}
+
+.question-option input {
+  margin-top: 3px;
+}
+
+.question-option span {
+  display: grid;
+  gap: 2px;
+}
+
+.question-option strong {
+  font-size: 13px;
+}
+
+.question-option small {
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.question-custom {
+  width: 100%;
+  padding: 9px 10px;
+  background: var(--bg);
+  border: 1px solid #d8e2f5;
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.question-custom:focus {
+  border-color: #9bb5e6;
+}
+
+.question-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 /* -------------------------------------------------------------- 输入区域 */
 
 .composer {

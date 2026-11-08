@@ -5,6 +5,8 @@ import {
   type Message,
   type PermissionReply,
   type PermissionRequest,
+  type QuestionAnswer,
+  type QuestionRequest,
   type Session,
 } from "@easycode/schema"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -57,6 +59,8 @@ export interface EasyCodeStore {
   running: boolean
   /** 待用户回应的授权请求 */
   pendingPermissions: PermissionRequest[]
+  /** 等待用户回答的问题 */
+  pendingQuestions: QuestionRequest[]
   /** 当前会话最近一次上下文压缩的展示状态。 */
   compaction: CompactionViewState
   /** 当前记录的事件流连通状态；自动重连中的瞬时断开目前不会翻转此值。 */
@@ -77,6 +81,7 @@ export interface EasyCodeStore {
   send(text: string): Promise<void>
   interrupt(): Promise<void>
   replyPermission(requestID: string, reply: PermissionReply, feedback?: string): Promise<void>
+  replyQuestion(requestID: string, answers: QuestionAnswer[]): Promise<void>
   refreshSessions(): void
   clearError(): void
 }
@@ -89,6 +94,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [deltas, setDeltas] = useState<DeltaBuffer | undefined>()
   const [running, setRunning] = useState(false)
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([])
+  const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([])
   const [compaction, setCompaction] = useState<CompactionViewState>({ phase: "idle" })
   const [connected, setConnected] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -230,6 +236,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setDeltas(undefined)
     setRunning(false)
     setPendingPermissions([])
+    setPendingQuestions([])
     setCompaction({ phase: "idle" })
 
     const load = async (): Promise<void> => {
@@ -239,14 +246,16 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       }
       inFlight = true
       try {
-        const [nextMessages, nextPermissions, nextSession] = await Promise.all([
+        const [nextMessages, nextPermissions, nextQuestions, nextSession] = await Promise.all([
           client.sessions.messages(activeSessionID),
           client.sessions.permissions(activeSessionID),
+          client.sessions.questions(activeSessionID),
           client.sessions.get(activeSessionID),
         ])
         if (disposed) return
         setMessages(nextMessages)
         setPendingPermissions(nextPermissions)
+        setPendingQuestions(nextQuestions)
         setCurrentSession(nextSession)
       } catch (cause) {
         if (!disposed) setError(describeError(cause))
@@ -350,6 +359,9 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
 
         case "permission.asked":
         case "permission.replied":
+        case "question.asked":
+        case "question.replied":
+        case "question.cancelled":
           // 审批状态需要尽快反映到界面上，不能等延迟合并
           scheduleLoad(0)
           return
@@ -410,6 +422,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setCurrentSessionID(undefined)
     setMessages([])
     setPendingPermissions([])
+    setPendingQuestions([])
     setRunning(false)
     setCompaction({ phase: "idle" })
   }, [])
@@ -510,6 +523,19 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     [client, activeSessionID],
   )
 
+  const replyQuestion = useCallback(
+    async (requestID: string, answers: QuestionAnswer[]) => {
+      if (activeSessionID === undefined) return
+      try {
+        await client.sessions.replyQuestion(activeSessionID, requestID, { answers })
+        setPendingQuestions((previous) => previous.filter((request) => request.id !== requestID))
+      } catch (cause) {
+        setError(describeError(cause))
+      }
+    },
+    [client, activeSessionID],
+  )
+
   const clearError = useCallback(() => setError(undefined), [])
   const refreshSessions = useCallback(() => setSessionListToken((token) => token + 1), [])
 
@@ -536,6 +562,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     messages: mergedMessages,
     running,
     pendingPermissions,
+    pendingQuestions,
     compaction,
     connected,
     loading,
@@ -550,6 +577,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     send,
     interrupt,
     replyPermission,
+    replyQuestion,
     refreshSessions,
     clearError,
   }

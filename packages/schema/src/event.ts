@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { Content } from "./message.js"
 import { PermissionReply } from "./permission.js"
+import { QuestionAnswer, QuestionPrompt, QuestionSource } from "./question.js"
 import { Session, Todo } from "./session.js"
 import { TaskState } from "./task.js"
 import { ToolMetadata } from "./tool.js"
@@ -263,6 +264,33 @@ const PermissionReplied = z.object({
   feedback: z.string().optional(),
 })
 
+/** 用户交互问题已创建，回答前当前工具调用或回合会保持等待。 */
+const QuestionAsked = z.object({
+  ...durableEnvelope,
+  type: z.literal("question.asked"),
+  requestID: z.string(),
+  source: QuestionSource,
+  title: z.string(),
+  callID: z.string().optional(),
+  questions: z.array(QuestionPrompt).min(1),
+})
+
+/** 用户回答了一个问题请求。 */
+const QuestionReplied = z.object({
+  ...durableEnvelope,
+  type: z.literal("question.replied"),
+  requestID: z.string(),
+  answers: z.array(QuestionAnswer),
+})
+
+/** 问题请求被中断、进程重启或用户放弃，不再接受回答。 */
+const QuestionCancelled = z.object({
+  ...durableEnvelope,
+  type: z.literal("question.cancelled"),
+  requestID: z.string(),
+  reason: z.string(),
+})
+
 /**
  * 回合开始。
  *
@@ -317,6 +345,9 @@ export const DurableEvent = z.discriminatedUnion("type", [
   ContextUpdated,
   PermissionAsked,
   PermissionReplied,
+  QuestionAsked,
+  QuestionReplied,
+  QuestionCancelled,
   RunStarted,
   RunIdle,
   RunInterrupted,

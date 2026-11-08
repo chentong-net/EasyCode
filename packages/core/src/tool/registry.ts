@@ -1,6 +1,14 @@
-import type { Content, Todo, ToolCall, ToolDefinition, ToolMetadata } from "@easycode/schema"
+import type {
+  Content,
+  QuestionAnswer,
+  QuestionPrompt,
+  Todo,
+  ToolCall,
+  ToolDefinition,
+  ToolMetadata,
+} from "@easycode/schema"
 
-import { PermissionDeclinedError, ToolFailure } from "../errors.js"
+import { PermissionDeclinedError, QuestionCancelledError, ToolFailure } from "../errors.js"
 import { createLogger, type Logger } from "../log.js"
 import { boundContent } from "./output.js"
 import { toModelDefinition, type Tool, type ToolContext } from "./tool.js"
@@ -40,6 +48,8 @@ export interface SettleInput {
   signal: AbortSignal
   /** 由 runner 提供的授权函数，内部已绑定会话与 agent */
   authorize: (input: { callID: string; action: string; resources: string[]; save: string[] }) => Promise<void>
+  /** 由 runner 提供的问题交互函数，内部已绑定会话与工具调用。 */
+  askQuestion: (questions: QuestionPrompt[]) => Promise<QuestionAnswer[]>
   /** 会话级状态访问，透传给需要它的工具（目前只有 todowrite） */
   session: {
     todos: () => Todo[]
@@ -119,6 +129,7 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
           save: save ?? tool.savePatterns(parsed.data),
         })
       },
+      askQuestion: input.askQuestion,
       session: input.session,
       logger: logger.child(name),
     }
@@ -151,6 +162,15 @@ export const createToolRegistry = (deps: ToolRegistryDeps): ToolRegistry => {
     } catch (error) {
       // 用户拒绝授权会让整个回合停止，必须原样向上抛，不能变成工具错误结果
       if (error instanceof PermissionDeclinedError) throw error
+      if (error instanceof QuestionCancelledError) {
+        logger.info("用户问题已取消", { name, callID: input.call.callID })
+        return {
+          name,
+          status: "error",
+          error: error.message,
+          metadata: { effect: tool.effect, failureKind: "aborted" },
+        }
+      }
 
       if (error instanceof ToolFailure) {
         logger.info("工具执行失败", { name, callID: input.call.callID, message: error.message })

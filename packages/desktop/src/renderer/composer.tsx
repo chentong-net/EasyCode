@@ -6,10 +6,13 @@ const MAX_INPUT_HEIGHT = 180
 
 export const Composer = ({
   running,
+  inputDisabled = false,
   onSend,
   onStop,
 }: {
   running: boolean
+  /** 有必须通过专用卡片回答的问题时暂停普通输入。 */
+  inputDisabled?: boolean
   onSend: (text: string) => Promise<void>
   onStop: () => Promise<void>
 }) => {
@@ -45,7 +48,7 @@ export const Composer = ({
     void submit(event)
   }
 
-  const canSend = draft.trim().length > 0 && !submitting
+  const canSend = draft.trim().length > 0 && !submitting && !inputDisabled
 
   return (
     <form className="composer" onSubmit={(event) => void submit(event)}>
@@ -55,10 +58,10 @@ export const Composer = ({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder="发消息…（Enter 发送，Shift+Enter 换行）"
+        placeholder={inputDisabled ? "请先回答上方问题" : "发消息…（Enter 发送，Shift+Enter 换行）"}
         rows={1}
         aria-label="消息输入框"
-        disabled={submitting}
+        disabled={submitting || inputDisabled}
       />
 
       <div className="composer-toolbar">

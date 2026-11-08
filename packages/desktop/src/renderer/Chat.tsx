@@ -1,4 +1,4 @@
-import type { Message, PermissionRequest, Usage } from "@easycode/schema"
+import type { Message, PermissionRequest, QuestionAnswer, QuestionPrompt, QuestionRequest, Usage } from "@easycode/schema"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { Composer } from "./composer"
@@ -37,6 +37,127 @@ const PermissionCard = ({
     </div>
   </div>
 )
+
+interface QuestionDraft {
+  selected: string[]
+  custom: string
+}
+
+const QuestionCard = ({
+  request,
+  onReply,
+}: {
+  request: QuestionRequest
+  onReply: (requestID: string, answers: QuestionAnswer[]) => Promise<void>
+}) => {
+  const [drafts, setDrafts] = useState<Record<string, QuestionDraft>>({})
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    setDrafts({})
+    setSubmitting(false)
+  }, [request.id])
+
+  const draftOf = (question: QuestionPrompt): QuestionDraft =>
+    drafts[question.id] ?? { selected: [], custom: "" }
+
+  const updateDraft = (question: QuestionPrompt, update: Partial<QuestionDraft>): void => {
+    setDrafts((previous) => ({
+      ...previous,
+      [question.id]: { ...(previous[question.id] ?? { selected: [], custom: "" }), ...update },
+    }))
+  }
+
+  const choose = (question: QuestionPrompt, label: string): void => {
+    const draft = draftOf(question)
+    if (question.multiple === true) {
+      const selected = draft.selected.includes(label)
+        ? draft.selected.filter((item) => item !== label)
+        : [...draft.selected, label]
+      updateDraft(question, { selected })
+      return
+    }
+    updateDraft(question, { selected: [label], custom: "" })
+  }
+
+  const setCustom = (question: QuestionPrompt, custom: string): void => {
+    updateDraft(question, {
+      custom,
+      ...(question.multiple === true || custom.trim().length === 0 ? {} : { selected: [] }),
+    })
+  }
+
+  const complete = request.questions.every((question) => {
+    const draft = draftOf(question)
+    return draft.selected.length > 0 || draft.custom.trim().length > 0
+  })
+
+  const submit = async (): Promise<void> => {
+    if (!complete || submitting) return
+    setSubmitting(true)
+    const answers = request.questions.map((question) => {
+      const draft = draftOf(question)
+      const custom = draft.custom.trim()
+      return {
+        questionID: question.id,
+        selected: draft.selected,
+        ...(custom.length > 0 ? { custom } : {}),
+      }
+    })
+    try {
+      await onReply(request.id, answers)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="question-card">
+      <div className="question-kicker">{request.source === "checkpoint" ? "执行检查点" : "需要你的确认"}</div>
+      <div className="question-title">{request.title}</div>
+      {request.questions.map((question) => {
+        const draft = draftOf(question)
+        return (
+          <div className="question-item" key={question.id}>
+            <div className="question-header">{question.header}</div>
+            <div className="question-text">{question.question}</div>
+            <div className="question-options">
+              {question.options.map((option) => {
+                const selected = draft.selected.includes(option.label)
+                return (
+                  <label className={`question-option${selected ? " question-option-selected" : ""}`} key={option.label}>
+                    <input
+                      type={question.multiple === true ? "checkbox" : "radio"}
+                      name={`${request.id}-${question.id}`}
+                      checked={selected}
+                      onChange={() => choose(question, option.label)}
+                    />
+                    <span>
+                      <strong>{option.label}</strong>
+                      {option.description && <small>{option.description}</small>}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+            <input
+              className="question-custom"
+              value={draft.custom}
+              onChange={(event) => setCustom(question, event.target.value)}
+              placeholder="也可以直接输入其他答案"
+              aria-label={`${question.header}的其他答案`}
+            />
+          </div>
+        )
+      })}
+      <div className="question-actions">
+        <button type="button" className="btn" disabled={!complete || submitting} onClick={() => void submit()}>
+          {submitting ? "提交中…" : "提交回答"}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const ContextRing = ({ ratio, hasValue }: { ratio: number; hasValue: boolean }) => {
   const radius = 15
@@ -222,8 +343,16 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
             onReply={(requestID, reply) => void store.replyPermission(requestID, reply)}
           />
         ))}
+        {store.pendingQuestions.map((request) => (
+          <QuestionCard
+            key={request.id}
+            request={request}
+            onReply={store.replyQuestion}
+          />
+        ))}
         <Composer
           running={store.running}
+          inputDisabled={store.pendingQuestions.length > 0}
           onSend={async (text) => {
             stickToBottom.current = true
             await store.send(text)

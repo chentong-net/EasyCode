@@ -17,6 +17,7 @@ import { describeError, isAbortError, LLMError } from "../llm/error.js"
 import type { LLMClient, LLMRequest } from "../llm/types.js"
 import { createLogger, type Logger } from "../log.js"
 import type { PermissionService } from "../permission/service.js"
+import type { QuestionService } from "../question/service.js"
 import type { CompactionManager } from "../session/compaction.js"
 import type { SystemContextManager } from "../session/context.js"
 import { buildLLMMessages } from "../session/history.js"
@@ -62,6 +63,7 @@ export interface RunnerDeps {
   agents: AgentRegistry
   tools: ToolRegistry
   permissions: PermissionService
+  questions: QuestionService
   compaction: CompactionManager
   context: SystemContextManager
   hub: EventHub
@@ -743,6 +745,15 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
             ...(params.signal ? { signal: params.signal } : {}),
           })
         },
+        askQuestion: (questions) =>
+          deps.questions.ask({
+            handle,
+            source: "tool",
+            title: "需要你的确认",
+            callID: params.callID,
+            questions,
+            ...(params.signal ? { signal: params.signal } : {}),
+          }),
         session: {
           todos: () => handle.state.session.todos,
           setTodos: async (todos) => {

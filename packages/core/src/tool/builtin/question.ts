@@ -35,27 +35,28 @@ export const questionTool = defineTool({
   effect: "state",
   resources: () => [],
   savePatterns: () => [],
-  execute: async (input: Input) => {
-    const text = input.questions
+  execute: async (input: Input, context) => {
+    await context.authorize({ action: "question", resources: ["*"] })
+    const prompts = input.questions.map((question, index) => ({
+      id: `q${index}`,
+      ...question,
+    }))
+    const answers = await context.askQuestion(prompts)
+    const text = prompts
       .map((question, index) => {
-        const options = question.options
-          .map((option) => `- ${option.label}${option.description ? `：${option.description}` : ""}`)
-          .join("\n")
-        return [
-          `${index + 1}. ${question.header}`,
-          question.question,
-          options,
-          question.multiple === true ? "（可多选，也可以直接输入其他答案）" : "（也可以直接输入其他答案）",
-        ].join("\n")
+        const answer = answers.find((item) => item.questionID === question.id)
+        const value =
+          answer?.skipped === true
+            ? "已跳过"
+            : [...(answer?.selected ?? []), ...(answer?.custom ? [answer.custom] : [])].join("、") || "未回答"
+        return `${index + 1}. ${question.header}：${value}`
       })
-      .join("\n\n")
+      .join("\n")
 
     return {
-      status: "error" as const,
-      output: input,
-      content: [{ type: "text" as const, text }],
-      error: "需要用户回答后继续",
-      metadata: { effect: "state" as const, needsInput: true },
+      output: { answers },
+      content: [{ type: "text", text: `用户已经回答：\n${text}` }],
+      metadata: { effect: "state" },
     }
   },
 })

@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline"
 
 import type { Core, Logger } from "@easycode/core"
-import type { Event } from "@easycode/schema"
+import type { Event, QuestionAnswer, QuestionPrompt } from "@easycode/schema"
 
 /**
  * 把会话事件渲染到终端。
@@ -130,6 +130,68 @@ export const createSessionRenderer = (options: SessionRendererOptions): SessionR
       })
   }
 
+  const handleQuestion = (event: Extract<Event, { type: "question.asked" }>): void => {
+    ensureNewline()
+    write(`\n${event.title}\n`)
+
+    askQueue = askQueue
+      .then(async () => {
+        const answers: QuestionAnswer[] = []
+        for (const question of event.questions) {
+          const answer = await askQuestion(question)
+          answers.push(answer)
+        }
+        const handle = await core.sessions.handle(sessionID)
+        await core.questions.reply({
+          handle,
+          requestID: event.requestID,
+          answers,
+        })
+        logger.info("已在命令行中回答问题", { sessionID, requestID: event.requestID })
+      })
+      .catch((error) => {
+        logger.warn("回答问题失败", { sessionID, requestID: event.requestID, error })
+      })
+  }
+
+  const askQuestion = async (question: QuestionPrompt): Promise<QuestionAnswer> => {
+    write(`\n${question.header}\n${question.question}\n`)
+    question.options.forEach((option, index) => {
+      write(`  ${index + 1}. ${option.label}${option.description ? `：${option.description}` : ""}\n`)
+    })
+    write(
+      question.multiple === true
+        ? "输入选项编号（可多选，用逗号分隔）、选项文字或其他答案；输入“跳过”可留空。\n"
+        : "输入选项编号、选项文字或其他答案；输入“跳过”可留空。\n",
+    )
+
+    const raw = (await io.ask("> ")).trim()
+    if (raw.length === 0 || raw === "跳过") {
+      return { questionID: question.id, selected: [], skipped: true }
+    }
+
+    const selected: string[] = []
+    const custom: string[] = []
+    const parts = question.multiple === true ? raw.split(",").map((part) => part.trim()).filter(Boolean) : [raw]
+    for (const part of parts) {
+      const numeric = Number(part)
+      const byIndex = Number.isInteger(numeric) ? question.options[numeric - 1]?.label : undefined
+      const byLabel = question.options.find((option) => option.label === part)?.label
+      const option = byIndex ?? byLabel
+      if (option !== undefined) selected.push(option)
+      else if (part.length > 0) custom.push(part)
+    }
+
+    if (question.multiple !== true && custom.length > 0) {
+      return { questionID: question.id, selected: [], custom: custom.join("，") }
+    }
+    return {
+      questionID: question.id,
+      selected,
+      ...(custom.length > 0 ? { custom: custom.join("，") } : {}),
+    }
+  }
+
   const handleEvent = (event: Event): void => {
     switch (event.type) {
       case "text.delta": {
@@ -187,6 +249,10 @@ export const createSessionRenderer = (options: SessionRendererOptions): SessionR
         handlePermission(event)
         break
 
+      case "question.asked":
+        handleQuestion(event)
+        break
+
       case "message.ended":
         if (event.error !== undefined) {
           ensureNewline()
@@ -215,6 +281,8 @@ export const createSessionRenderer = (options: SessionRendererOptions): SessionR
       case "tool.input.delta":
       case "context.updated":
       case "permission.replied":
+      case "question.replied":
+      case "question.cancelled":
       case "run.started":
       case "run.idle":
         break

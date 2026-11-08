@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.3.0"
+export const API_VERSION = "0.4.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -88,6 +88,13 @@ export const Endpoints = {
   /** 回应某个权限请求 */
   permissionReply: (sessionID: string, requestID: string): string =>
     `${sessionPath(sessionID)}/permissions/${segment(requestID)}/reply`,
+
+  /** 待回答的问题列表 */
+  questions: (sessionID: string): string => `${sessionPath(sessionID)}/questions`,
+
+  /** 回答某个问题请求 */
+  questionReply: (sessionID: string, requestID: string): string =>
+    `${sessionPath(sessionID)}/questions/${segment(requestID)}/reply`,
 } as const
 
 /** 给事件流 URL 附加 `after` 参数，after 为 undefined 时不附加。 */

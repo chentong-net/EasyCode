@@ -1,4 +1,12 @@
-import type { Content, Todo, ToolDefinition, ToolEffect, ToolMetadata } from "@easycode/schema"
+import type {
+  Content,
+  QuestionAnswer,
+  QuestionPrompt,
+  Todo,
+  ToolDefinition,
+  ToolEffect,
+  ToolMetadata,
+} from "@easycode/schema"
 import { z } from "zod"
 import { zodToJsonSchema } from "zod-to-json-schema"
 
@@ -32,6 +40,8 @@ export interface ToolContext {
    * 工具不需要知道规则是怎么匹配的，只需要声明「我要做什么、涉及哪些资源」。
    */
   authorize: (input: { action: string; resources: string[]; save?: string[] }) => Promise<void>
+  /** 向用户展示问题并等待回答。 */
+  askQuestion: (questions: QuestionPrompt[]) => Promise<QuestionAnswer[]>
   /**
    * 会话级状态访问。
    *

@@ -4,6 +4,7 @@ import { createEventHub, type EventHub } from "./events.js"
 import { createLLMClient } from "./llm/client.js"
 import { createLogger, type Logger } from "./log.js"
 import { createPermissionService, type PermissionService } from "./permission/service.js"
+import { createQuestionService, type QuestionService } from "./question/service.js"
 import { createRunner } from "./runner/index.js"
 import { createCompactionManager } from "./session/compaction.js"
 import { createSystemContextManager } from "./session/context.js"
@@ -35,6 +36,7 @@ export interface Core {
   sessions: SessionManager
   workspaces: WorkspaceManager
   permissions: PermissionService
+  questions: QuestionService
   tools: ToolRegistry
   logger: Logger
   /** 关闭运行时：中止所有运行中的回合，不再接受新的执行 */
@@ -61,6 +63,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const hub = createEventHub(logger)
   const llm = createLLMClient(toLLMClientConfig(config), logger.child("llm"))
   const permissions = createPermissionService({ config, logger: logger.child("permission") })
+  const questions = createQuestionService()
   const compaction = createCompactionManager({ config, llm, logger: logger.child("compaction") })
   const context = createSystemContextManager()
   const tools = createToolRegistry({
@@ -88,6 +91,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     agents,
     tools,
     permissions,
+    questions,
     compaction,
     context,
     hub,
@@ -112,6 +116,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     sessions,
     workspaces,
     permissions,
+    questions,
     tools,
     logger,
     shutdown: async () => {
