@@ -167,9 +167,12 @@ npm run package --workspace @easycode/desktop
 5. 工具结果更新修改文件、验证状态、失败观察和重复调用计数
 6. 全部工具调用完成并写入结果之后，判断是否进入下一个 provider turn（模型调用轮次）
 7. 代码修改后若尚未验证，Runner 进入验证阶段并要求模型补做验证或说明无法验证
-8. 回合结束前写入结构化任务结果，再写入空闲事件
+8. 每个步骤窗口达到 30 个 provider turn 时，Runner 发起续行检查点并等待用户决定继续或停止
+9. 回合结束前写入结构化任务结果，再写入空闲事件
 
 任务状态通过 `task.updated` 事件持久化，包含目标、验收条件、阶段、修改文件、验证结果和最终结果。它独立于普通消息历史，执行 compaction（压缩）时仍会注入模型请求尾部。
+
+步骤预算分为当前窗口与累计步数。30 步是人工续行检查点，不是任务上限；用户选择继续后开启新的 30 步窗口。Agent 仍可配置可选的硬上限用于异常保护，达到硬上限时禁用工具并强制文本收尾。
 
 ### 事件日志与投影
 
@@ -202,7 +205,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | `write` | 创建或整体重写文件 |
 | `bash` | 在工作目录下执行命令 |
 | `todowrite` | 维护任务清单 |
-| `question` | 在歧义或实现取舍影响任务方向时请求用户确认 |
+| `question` | 在歧义、实现取舍或续行检查点时请求用户确认，并等待回答后继续 |
 | `websearch` | 使用已配置厂商检索网页 |
 | `webfetch` | 使用已配置厂商读取单个网页 |
 
@@ -211,6 +214,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 `websearch` 与 `webfetch` 的配置、HTTP、厂商映射和工具实现集中在 `packages/core/src/tool/builtin/web`，通过 `createBuiltinTools()` 按普通内置工具注册。DeepSeek 使用 Search/Fetch，GLM 使用 Web Search/Reader，Tavily 使用 Search/Extract；厂商地址固定。工具默认最多返回 20 条搜索结果、30 秒超时和 8 MB 厂商响应，最终进入模型的内容仍经过统一输出截断。
 
 工具调用完成后会写入结构化元数据：副作用类型、失败原因、是否可重试、修改文件路径和验证结果。`bash` 的非零退出码与超时会作为失败返回；测试、类型检查、构建和 lint 类命令会作为验证证据更新任务状态。文件编辑与整体写入使用同目录临时文件加原子替换。
+
+`question` 通过持久化 `question.asked`、`question.replied` 与 `question.cancelled` 事件等待用户回答。回答前工具调用和回合保持运行；中断或进程重启会取消失效请求。桌面端显示选项与自由输入卡片，命令行在同一进程中提示回答。
 
 ## HTTP 接口
 
@@ -237,6 +242,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | GET | `/api/sessions/{id}/events` | 事件流（SSE，`after` 参数指定起始 `seq`） |
 | GET | `/api/sessions/{id}/permissions` | 待审批的权限请求 |
 | POST | `/api/sessions/{id}/permissions/{requestID}/reply` | 回应权限请求，请求体为 `{ reply, feedback? }` |
+| GET | `/api/sessions/{id}/questions` | 等待回答的问题列表 |
+| POST | `/api/sessions/{id}/questions/{requestID}/reply` | 回答问题，请求体为 `{ answers }` |
 
 `prompt` 返回 `{ inputID }` 后立即结束，执行进度经事件流反馈。
 
@@ -269,7 +276,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 ## 当前实现范围
 
-- 单个内置 agent：`build`，单轮任务上限 30 步
+- 单个内置 agent：`build`，每 30 步进入一次续行检查点，默认不设置固定任务上限
 - 模型在 `.env` 中配置，会话内保持一致
 - 基础工具覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
 - 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
@@ -284,6 +291,6 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 两种入口：命令行与 Electron 桌面端，共用 Core 运行时
 - 事件流断线重连，按 `seq` 补发缺失事件
 - 回合具有显式任务阶段、验证门槛、无进展保护和结构化最终结果
-- 步数预算进入任务状态，达到软上限时要求模型精简计划，达到硬上限时以部分完成结果收尾
+- 步数预算进入任务状态，软提醒后进入人工续行检查点；用户停止或可选硬上限触发时强制文本收尾
 - 上下文用量超过阈值时自动执行 compaction（压缩），支持分块摘要、预算收缩和确定性降级
 - 底部状态区展示上下文占用及最近一次压缩结果；正常压缩显示相对时间，降级和失败显示绝对时间
