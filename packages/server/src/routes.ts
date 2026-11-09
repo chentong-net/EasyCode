@@ -14,6 +14,7 @@ import {
   CreateWorkspaceRequest,
   CreateSessionRequest,
   Endpoints,
+  ModelConnectionTestRequest,
   PinWorkspaceRequest,
   PinSessionRequest,
   PermissionReplyRequest,
@@ -124,6 +125,13 @@ const handleRequest = async (
       200,
       core.agents.all().map((agent) => ({ id: agent.id, description: agent.description })),
     )
+    return
+  }
+
+  if (resource === "config" && rest.length === 1 && rest[0] === "test") {
+    if (method !== "POST") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+    const body = parseBody(ModelConnectionTestRequest, await readJSON(req))
+    sendJSON(res, 200, await core.configuration.testModel(body))
     return
   }
 
@@ -392,6 +400,7 @@ export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.agents()}`,
   `GET  ${Endpoints.config()}`,
   `PUT  ${Endpoints.config()}`,
+  `POST ${Endpoints.testConfig()}`,
   `GET  ${Endpoints.workspaces()}`,
   `POST ${Endpoints.workspaces()}`,
   `PATCH ${Endpoints.workspace(":id")}`,

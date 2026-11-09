@@ -245,6 +245,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | GET | `/api/agents` | 可用 agent 列表 |
 | GET | `/api/config` | 可安全展示的 TOML 运行配置；密钥只返回是否已配置 |
 | PUT | `/api/config` | 保存模型、联网和日志配置到固定 `config.toml` |
+| POST | `/api/config/test` | 使用当前表单值发送一次最小模型请求，验证连接 |
 | GET | `/api/workspaces` | 工作区列表 |
 | POST | `/api/workspaces` | 添加工作区，请求体为 `{ directory }` |
 | PATCH | `/api/workspaces/{id}` | 重命名工作区，请求体为 `{ name }` |

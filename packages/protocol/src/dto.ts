@@ -281,6 +281,25 @@ export const RuntimeConfigUpdateRequest = z.object({
 
 export type RuntimeConfigUpdateRequest = z.infer<typeof RuntimeConfigUpdateRequest>
 
+/** 使用配置表单当前值测试模型服务是否可用。 */
+export const ModelConnectionTestRequest = z.object({
+  baseUrl: z.string().trim().url("接口地址必须是合法 URL"),
+  model: z.string().trim().min(1, "模型 ID 不能为空"),
+  apiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+  extraHeaders: z.string().trim().min(1).max(20_000).optional().nullable(),
+})
+
+export type ModelConnectionTestRequest = z.infer<typeof ModelConnectionTestRequest>
+
+export const ModelConnectionTestResponse = z.object({
+  ok: z.boolean(),
+  latencyMs: z.number().int().nonnegative(),
+  model: z.string(),
+  message: z.string().optional(),
+})
+
+export type ModelConnectionTestResponse = z.infer<typeof ModelConnectionTestResponse>
+
 /** 当前会话语义任务的完整工作记忆。 */
 export const SessionTaskResponse = z.object({
   task: TaskState.nullable(),

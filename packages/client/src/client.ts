@@ -7,6 +7,8 @@ import {
   Endpoints,
   HealthResponse,
   MessageListResponse,
+  ModelConnectionTestRequest,
+  ModelConnectionTestResponse,
   PermissionListResponse,
   PinWorkspaceRequest,
   PinSessionRequest,
@@ -93,6 +95,7 @@ export interface EasyCodeClient {
   config: {
     get(signal?: AbortSignal): Promise<RuntimeConfigResponse>
     update(input: RuntimeConfigUpdateRequest, signal?: AbortSignal): Promise<RuntimeConfigResponse>
+    test(input: ModelConnectionTestRequest, signal?: AbortSignal): Promise<ModelConnectionTestResponse>
   }
   workspaces: {
     list(signal?: AbortSignal): Promise<Workspace[]>
@@ -154,6 +157,8 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
     config: {
       get: (signal) => get(transport, Endpoints.config(), RuntimeConfigResponse, signal),
       update: (input, signal) => put(transport, Endpoints.config(), input, RuntimeConfigResponse, signal),
+      test: (input, signal) =>
+        post(transport, Endpoints.testConfig(), input, ModelConnectionTestResponse, signal),
     },
 
     workspaces: {

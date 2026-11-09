@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.7.0"
+export const API_VERSION = "0.8.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -48,6 +48,9 @@ export const Endpoints = {
 
   /** 运行配置：GET 读取 / PUT 保存 */
   config: (): string => `${API_PREFIX}/config`,
+
+  /** 使用当前表单值测试模型连接 */
+  testConfig: (): string => `${API_PREFIX}/config/test`,
 
   /** 工作区集合：GET 列表 / POST 添加 */
   workspaces: (): string => `${API_PREFIX}/workspaces`,

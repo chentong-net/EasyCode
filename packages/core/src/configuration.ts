@@ -7,6 +7,8 @@ import {
   type CoreConfig,
   type StoredRuntimeConfig,
 } from "./config.js"
+import { createLLMClient } from "./llm/client.js"
+import { describeError } from "./llm/error.js"
 import type { CoreWebConfig, WebProviderID } from "./tool/builtin/web/types.js"
 
 export type RuntimeLogLevel = StoredRuntimeConfig["logLevel"]
@@ -59,6 +61,21 @@ export interface RuntimeConfigUpdate {
 export interface ConfigurationService {
   read(): Promise<RuntimeConfigView>
   update(input: RuntimeConfigUpdate): Promise<RuntimeConfigView>
+  testModel(input: ModelConnectionTestInput): Promise<ModelConnectionTestResult>
+}
+
+export interface ModelConnectionTestInput {
+  baseUrl: string
+  model: string
+  apiKey?: string | null
+  extraHeaders?: string | null
+}
+
+export interface ModelConnectionTestResult {
+  ok: boolean
+  latencyMs: number
+  model: string
+  message?: string
 }
 
 interface ConfigurationDeps {
@@ -85,7 +102,61 @@ export const createConfigurationService = (deps: ConfigurationDeps): Configurati
     return operation
   }
 
-  return { read, update }
+  const testModel = async (input: ModelConnectionTestInput): Promise<ModelConnectionTestResult> => {
+    const model = input.model.trim()
+    const baseUrl = input.baseUrl.trim().replace(/\/+$/, "")
+    const apiKey = input.apiKey === undefined ? current.apiKey : (input.apiKey ?? "")
+    const startedAt = Date.now()
+
+    if (apiKey.length === 0) {
+      return { ok: false, latencyMs: 0, model, message: "模型 API Key 尚未配置" }
+    }
+    if (model.length === 0) {
+      return { ok: false, latencyMs: 0, model, message: "模型 ID 尚未配置" }
+    }
+
+    let headers: Record<string, string>
+    try {
+      headers =
+        input.extraHeaders === undefined
+          ? current.headers
+          : input.extraHeaders === null
+            ? {}
+            : parseHeaders(input.extraHeaders)
+    } catch (error) {
+      return { ok: false, latencyMs: 0, model, message: describeError(error) }
+    }
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 15_000)
+    timer.unref()
+    try {
+      const client = createLLMClient({ baseUrl, apiKey, headers })
+      for await (const event of client.stream({
+        model,
+        system: ["你是模型连通性测试。收到用户输入后只回复 OK，不要调用任何工具。"],
+        messages: [{ role: "user", content: [{ type: "text", text: "ping" }] }],
+        tools: [],
+        maxOutputTokens: 16,
+        sessionID: "easycode_connection_test",
+        signal: controller.signal,
+      })) {
+        if (event.type === "finish") break
+      }
+      return { ok: true, latencyMs: Date.now() - startedAt, model }
+    } catch (error) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        model,
+        message: controller.signal.aborted ? "连接测试超时（15000ms）" : describeError(error),
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  return { read, update, testModel }
 }
 
 const toStoredConfig = (config: CoreConfig): StoredRuntimeConfig => ({
