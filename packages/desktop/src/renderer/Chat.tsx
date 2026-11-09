@@ -5,6 +5,7 @@ import { Composer } from "./composer"
 import { formatTokens, usageTotal } from "./format"
 import { MessageView } from "./message-view"
 import { type CompactionViewState, type EasyCodeStore } from "./store"
+import { TaskProgress } from "./TaskProgress"
 import type { WorkspaceState } from "./workspace"
 
 const PermissionCard = ({
@@ -352,6 +353,7 @@ const Conversation = ({ store }: { store: EasyCodeStore }) => {
       </div>
 
       <div className="composer-area">
+        <TaskProgress task={store.task} todos={store.currentSession?.todos ?? []} running={store.running} />
         {store.pendingPermissions.map((request) => (
           <PermissionCard
             key={request.id}

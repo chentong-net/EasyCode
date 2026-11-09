@@ -9,6 +9,7 @@ import {
   type QuestionAnswer,
   type QuestionRequest,
   type Session,
+  type TaskState,
 } from "@easycode/schema"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
@@ -64,6 +65,8 @@ export interface EasyCodeStore {
   pendingQuestions: QuestionRequest[]
   /** 当前会话最近一次上下文压缩的展示状态。 */
   compaction: CompactionViewState
+  /** 当前会话由事件日志投影出的任务工作记忆。 */
+  task: TaskState | undefined
   /** 当前记录的事件流连通状态；自动重连中的瞬时断开目前不会翻转此值。 */
   connected: boolean
   loading: boolean
@@ -99,6 +102,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
   const [pendingPermissions, setPendingPermissions] = useState<PermissionRequest[]>([])
   const [pendingQuestions, setPendingQuestions] = useState<QuestionRequest[]>([])
   const [compaction, setCompaction] = useState<CompactionViewState>({ phase: "idle" })
+  const [task, setTask] = useState<TaskState | undefined>()
   const [connected, setConnected] = useState(true)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | undefined>()
@@ -221,6 +225,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       setPendingPermissions([])
       setRunning(false)
       setCompaction({ phase: "idle" })
+      setTask(undefined)
       return
     }
 
@@ -241,6 +246,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setPendingPermissions([])
     setPendingQuestions([])
     setCompaction({ phase: "idle" })
+    setTask(undefined)
 
     const load = async (): Promise<void> => {
       if (inFlight) {
@@ -249,17 +255,19 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
       }
       inFlight = true
       try {
-        const [nextMessages, nextPermissions, nextQuestions, nextSession] = await Promise.all([
+        const [nextMessages, nextPermissions, nextQuestions, nextSession, nextTask] = await Promise.all([
           client.sessions.messages(activeSessionID),
           client.sessions.permissions(activeSessionID),
           client.sessions.questions(activeSessionID),
           client.sessions.get(activeSessionID),
+          client.sessions.task(activeSessionID),
         ])
         if (disposed) return
         setMessages(nextMessages)
         setPendingPermissions(nextPermissions)
         setPendingQuestions(nextQuestions)
         setCurrentSession(nextSession)
+        setTask(nextTask.task ?? undefined)
       } catch (cause) {
         if (!disposed) setError(describeError(cause))
       } finally {
@@ -369,8 +377,19 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           scheduleLoad(0)
           return
 
-        case "session.updated":
+        case "task.updated":
+          setTask(event.task)
+          return
+
         case "session.todos":
+          setCurrentSession((previous) =>
+            previous === undefined
+              ? previous
+              : { ...previous, todos: event.todos, updatedAt: event.timestamp },
+          )
+          return
+
+        case "session.updated":
           if (runActive) listDirty = true
           else refreshSessionListSoon()
           scheduleLoad()
@@ -428,6 +447,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     setPendingQuestions([])
     setRunning(false)
     setCompaction({ phase: "idle" })
+    setTask(undefined)
   }, [])
 
   const pinSession = useCallback(
@@ -493,6 +513,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
           setPendingPermissions([])
           setPendingQuestions([])
           setRunning(false)
+          setTask(undefined)
         }
         if (result.failed.length > 0) {
           setError(`有 ${result.failed.length} 个会话删除失败：${result.failed[0]?.error ?? "未知错误"}`)
@@ -594,6 +615,7 @@ export const useEasyCode = (client: EasyCodeClient, workspace: string | undefine
     pendingPermissions,
     pendingQuestions,
     compaction,
+    task,
     connected,
     loading,
     error,
