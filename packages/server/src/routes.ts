@@ -253,6 +253,14 @@ const handleRequest = async (
       return
     }
 
+    case "task": {
+      if (method !== "GET") throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
+      await requireSession(core, sessionID)
+      const task = await core.sessions.task(sessionID)
+      sendJSON(res, 200, { task: task ?? null })
+      return
+    }
+
     case "prompt": {
       await requireSession(core, sessionID)
       const body = parseBody(PromptRequest, await readJSON(req))
@@ -397,6 +405,7 @@ export const describeEndpoints = (): string[] => [
   `DELETE ${Endpoints.session(":id")}`,
   `POST ${Endpoints.pinSession(":id")}`,
   `GET  ${Endpoints.messages(":id")}`,
+  `GET  ${Endpoints.task(":id")}`,
   `POST ${Endpoints.prompt(":id")}`,
   `POST ${Endpoints.interrupt(":id")}`,
   `GET  ${Endpoints.events(":id")}`,

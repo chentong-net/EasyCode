@@ -18,7 +18,7 @@ export const API_PREFIX = "/api"
  * 桌面端与 sidecar 是分别构建的产物。健康检查会返回这个常量，
  * 供调用方排查版本错配；当前实现还没有在启动时自动校验它。
  */
-export const API_VERSION = "0.5.0"
+export const API_VERSION = "0.6.0"
 
 /** 鉴权头名称。桌面端的渲染进程从 preload 拿到 token 后放在这个头里。 */
 export const AUTH_HEADER = "x-easycode-token"
@@ -78,6 +78,9 @@ export const Endpoints = {
 
   /** 会话的消息列表 */
   messages: (sessionID: string): string => `${sessionPath(sessionID)}/messages`,
+
+  /** 会话当前任务进度 */
+  task: (sessionID: string): string => `${sessionPath(sessionID)}/task`,
 
   /** 提交一条用户输入 */
   prompt: (sessionID: string): string => `${sessionPath(sessionID)}/prompt`,

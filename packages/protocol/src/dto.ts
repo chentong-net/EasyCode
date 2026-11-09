@@ -8,6 +8,7 @@ import {
   QuestionAnswer,
   QuestionRequest,
   Session,
+  TaskState,
   Workspace,
 } from "@easycode/schema"
 
@@ -275,3 +276,10 @@ export const RuntimeConfigUpdateRequest = z.object({
 })
 
 export type RuntimeConfigUpdateRequest = z.infer<typeof RuntimeConfigUpdateRequest>
+
+/** 当前会话语义任务的完整工作记忆。 */
+export const SessionTaskResponse = z.object({
+  task: TaskState.nullable(),
+})
+
+export type SessionTaskResponse = z.infer<typeof SessionTaskResponse>

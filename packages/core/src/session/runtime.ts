@@ -1,7 +1,7 @@
 import { mkdir } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import type { Delivery, DurableEvent, Message, Session } from "@easycode/schema"
+import type { Delivery, DurableEvent, Message, Session, TaskState } from "@easycode/schema"
 import { zeroUsage } from "@easycode/schema"
 
 import type { AgentRegistry } from "../agent.js"
@@ -59,6 +59,8 @@ export interface SessionManager {
   get(sessionID: string): Promise<Session | undefined>
   /** 投影后的消息列表 */
   messages(sessionID: string): Promise<Message[]>
+  /** 当前任务的持久化工作记忆，没有任务时为空。 */
+  task(sessionID: string): Promise<TaskState | undefined>
   /** 接纳一条用户输入并唤醒执行。这是 UI 唯一的写入口。 */
   prompt(sessionID: string, input: { text: string; delivery?: Delivery }): Promise<{ inputID: string }>
   /** 中断当前回合。空闲时是空操作，因此可以安全重试。 */
@@ -313,6 +315,7 @@ export const createSessionManager = (deps: SessionManagerDeps): SessionManager =
     create,
     get: (sessionID) => deps.store.readSession(sessionID),
     messages: async (sessionID) => [...(await load(sessionID)).state.messages],
+    task: async (sessionID) => (await load(sessionID)).state.task,
     prompt,
     interrupt: async (sessionID) => {
       if (!driver) return
