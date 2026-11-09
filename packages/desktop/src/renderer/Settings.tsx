@@ -80,7 +80,8 @@ export const SettingsDialog = ({
   const [saving, setSaving] = useState(false)
   const [restarting, setRestarting] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState<string | undefined>()
+  const [loadError, setLoadError] = useState<string | undefined>()
+  const [saveError, setSaveError] = useState<string | undefined>()
   const [connectionTest, setConnectionTest] = useState<ConnectionTestState>({ phase: "idle" })
 
   useEffect(() => {
@@ -89,7 +90,8 @@ export const SettingsDialog = ({
     setLoading(true)
     setSaved(false)
     setConnectionTest({ phase: "idle" })
-    setError(undefined)
+    setLoadError(undefined)
+    setSaveError(undefined)
     setClear(EMPTY_CLEAR)
     void (async () => {
       try {
@@ -98,7 +100,7 @@ export const SettingsDialog = ({
         setConfig(next)
         setForm(toForm(next))
       } catch (cause) {
-        if (!controller.signal.aborted) setError(describeError(cause))
+        if (!controller.signal.aborted) setLoadError(describeError(cause))
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }
@@ -127,7 +129,8 @@ export const SettingsDialog = ({
 
   const setField = <Key extends keyof ConfigForm>(key: Key, value: ConfigForm[Key]): void => {
     setSaved(false)
-    setError(undefined)
+    setSaveError(undefined)
+    setLoadError(undefined)
     setConnectionTest({ phase: "idle" })
     setForm((current) => ({ ...current, [key]: value }))
   }
@@ -137,7 +140,8 @@ export const SettingsDialog = ({
     value: string,
   ): void => {
     setSaved(false)
-    setError(undefined)
+    setSaveError(undefined)
+    setLoadError(undefined)
     setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: false }))
     setForm((current) => ({ ...current, [field]: value }))
@@ -145,7 +149,8 @@ export const SettingsDialog = ({
 
   const toggleClear = (field: keyof ClearState): void => {
     setSaved(false)
-    setError(undefined)
+    setSaveError(undefined)
+    setLoadError(undefined)
     setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: !current[field] }))
     setForm((current) => ({ ...current, [field]: "" }))
@@ -180,7 +185,7 @@ export const SettingsDialog = ({
     }
 
     setSaving(true)
-    setError(undefined)
+    setSaveError(undefined)
     try {
       const next = await client.config.update(input)
       setConfig(next)
@@ -188,7 +193,7 @@ export const SettingsDialog = ({
       setClear(EMPTY_CLEAR)
       setSaved(true)
     } catch (cause) {
-      setError(describeError(cause))
+      setSaveError(describeError(cause))
     } finally {
       setSaving(false)
     }
@@ -196,18 +201,19 @@ export const SettingsDialog = ({
 
   const restart = async (): Promise<void> => {
     setRestarting(true)
-    setError(undefined)
+    setSaveError(undefined)
     try {
       await restartApp()
     } catch (cause) {
-      setError(describeError(cause))
+      setSaveError(describeError(cause))
       setRestarting(false)
     }
   }
 
   const testConnection = async (): Promise<void> => {
     if (connectionTest.phase === "testing") return
-    setError(undefined)
+    setLoadError(undefined)
+    setSaveError(undefined)
     setConnectionTest({ phase: "testing" })
     try {
       const result = await client.config.test({
@@ -229,7 +235,8 @@ export const SettingsDialog = ({
           ? { phase: "success", latencyMs: result.latencyMs }
           : { phase: "error", message: result.message ?? "连接测试失败" },
       )
-      setError(undefined)
+      setLoadError(undefined)
+      setSaveError(undefined)
     } catch (cause) {
       setConnectionTest({ phase: "error", message: describeError(cause) })
     }
@@ -274,7 +281,7 @@ export const SettingsDialog = ({
                   </div>
                 )}
 
-                {error !== undefined && <div className="settings-error">{error}</div>}
+                {loadError !== undefined && <div className="settings-load-error">无法读取配置：{loadError}</div>}
                 {saved && (
                   <div className="settings-saved">
                     <span>配置已保存。模型和联网工具需要重启应用后生效。</span>
@@ -516,6 +523,7 @@ export const SettingsDialog = ({
           </div>
 
           <footer className="settings-footer">
+            {saveError !== undefined && <span className="settings-footer-error">{saveError}</span>}
             <div className="settings-footer-actions">
               <button type="button" className="btn" onClick={onClose} disabled={saving || restarting}>
                 取消
