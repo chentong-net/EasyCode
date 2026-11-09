@@ -127,6 +127,7 @@ export const SettingsDialog = ({
 
   const setField = <Key extends keyof ConfigForm>(key: Key, value: ConfigForm[Key]): void => {
     setSaved(false)
+    setError(undefined)
     setConnectionTest({ phase: "idle" })
     setForm((current) => ({ ...current, [key]: value }))
   }
@@ -136,6 +137,7 @@ export const SettingsDialog = ({
     value: string,
   ): void => {
     setSaved(false)
+    setError(undefined)
     setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: false }))
     setForm((current) => ({ ...current, [field]: value }))
@@ -143,6 +145,7 @@ export const SettingsDialog = ({
 
   const toggleClear = (field: keyof ClearState): void => {
     setSaved(false)
+    setError(undefined)
     setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: !current[field] }))
     setForm((current) => ({ ...current, [field]: "" }))
@@ -158,31 +161,6 @@ export const SettingsDialog = ({
     const webMaxResponseBytes = Number(form.webMaxResponseBytes)
     const temperatureText = form.temperature.trim()
     const temperature = temperatureText.length === 0 ? null : Number(temperatureText)
-
-    if (!Number.isInteger(contextWindow) || contextWindow <= 0) {
-      setError("上下文窗口必须是正整数")
-      return
-    }
-    if (!Number.isInteger(maxOutputTokens) || maxOutputTokens <= 0) {
-      setError("单轮输出上限必须是正整数")
-      return
-    }
-    if (!Number.isInteger(webTimeoutMs) || webTimeoutMs <= 0 || webTimeoutMs > 120_000) {
-      setError("联网超时必须是 1 到 120000 之间的整数毫秒数")
-      return
-    }
-    if (
-      !Number.isInteger(webMaxResponseBytes) ||
-      webMaxResponseBytes <= 0 ||
-      webMaxResponseBytes > 32 * 1024 * 1024
-    ) {
-      setError("联网响应上限必须是 1 到 33554432 之间的整数字节数")
-      return
-    }
-    if (temperature !== null && !Number.isFinite(temperature)) {
-      setError("温度必须是数字，留空表示使用服务默认值")
-      return
-    }
 
     const input: RuntimeConfigUpdateRequest = {
       baseUrl: form.baseUrl,
@@ -229,6 +207,7 @@ export const SettingsDialog = ({
 
   const testConnection = async (): Promise<void> => {
     if (connectionTest.phase === "testing") return
+    setError(undefined)
     setConnectionTest({ phase: "testing" })
     try {
       const result = await client.config.test({
@@ -250,6 +229,7 @@ export const SettingsDialog = ({
           ? { phase: "success", latencyMs: result.latencyMs }
           : { phase: "error", message: result.message ?? "连接测试失败" },
       )
+      setError(undefined)
     } catch (cause) {
       setConnectionTest({ phase: "error", message: describeError(cause) })
     }
@@ -543,7 +523,7 @@ export const SettingsDialog = ({
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={loading || saving || restarting || connectionTest.phase === "testing"}
+                disabled={loading || saving || restarting}
               >
                 {saving ? "保存中…" : "保存配置"}
               </button>
