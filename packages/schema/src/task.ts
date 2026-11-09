@@ -95,6 +95,12 @@ export const TaskState = z.object({
   verifications: z.array(VerificationRecord).max(20),
   toolCalls: z.number().int().nonnegative(),
   repeatedToolCalls: z.number().int().nonnegative(),
+  /** 待办清单实际发生内容或状态变化时递增。 */
+  todoRevision: z.number().int().nonnegative().default(0),
+  /** 最近一次真实待办更新发生时的累计工具调用序号。 */
+  lastTodoUpdateToolCall: z.number().int().nonnegative().default(0),
+  /** 已经针对哪个待办版本发出过停滞提醒。 */
+  todoReminderRevision: z.number().int().nonnegative().optional(),
   mutationRevision: z.number().int().nonnegative(),
   lastToolSignature: z.string().optional(),
   lastObservation: z.string().optional(),

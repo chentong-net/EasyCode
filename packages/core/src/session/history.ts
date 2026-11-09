@@ -82,7 +82,7 @@ export const buildLLMMessages = (state: ProjectedState, options: HistoryOptions)
   }
 
   // 任务记忆放在动态历史尾部：它每次可能变化，但不会破坏系统提示词前缀缓存。
-  if (state.task) result.push({ role: "system", text: renderTaskState(state.task) })
+  if (state.task) result.push({ role: "system", text: renderTaskState(state.task, state.session.todos) })
 
   return result
 }

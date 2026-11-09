@@ -787,6 +787,34 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       needsContinuation = true
     }
 
+    const todoTask = handle.state.task
+    const todos = handle.state.session.todos
+    const openTodos = todos.filter((todo) => todo.status !== "completed")
+    const needsTodoProgressUpdate =
+      !aborted &&
+      !params.isLastStep &&
+      !needsClarification &&
+      !needsBlocked &&
+      todoTask !== undefined &&
+      todoTask.outcome === undefined &&
+      todos.length > 1 &&
+      openTodos.length > 0 &&
+      todoTask.toolCalls - todoTask.lastTodoUpdateToolCall >= 2 &&
+      todoTask.todoReminderRevision !== todoTask.todoRevision
+
+    if (needsTodoProgressUpdate && todoTask) {
+      await appendTask(handle, {
+        ...todoTask,
+        todoReminderRevision: todoTask.todoRevision,
+      })
+      needsContinuation = true
+      logger.info("待办清单长时间未更新，要求模型逐项同步进度", {
+        sessionID: session.id,
+        openTodos: openTodos.length,
+        toolCallsSinceTodoUpdate: todoTask.toolCalls - todoTask.lastTodoUpdateToolCall,
+      })
+    }
+
     logger.info("本轮结束", {
       sessionID: session.id,
       messageID,
@@ -964,6 +992,14 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
     ])
     const signature = `${input.name}:${stableStringify(input.input)}`
     const observation = summarizeToolResult(input.status, input.output, input.error)
+    const toolCalls = task.toolCalls + 1
+    const todoChanged =
+      input.name === "todowrite" &&
+      input.status === "success" &&
+      typeof input.output === "object" &&
+      input.output !== null &&
+      (input.output as { changed?: unknown }).changed === true
+    const todoRevision = todoChanged ? task.todoRevision + 1 : task.todoRevision
     const repeated =
       task.lastToolSignature === signature && task.lastObservation === observation
         ? task.repeatedToolCalls + 1
@@ -992,8 +1028,11 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       changedPaths,
       verificationStatus: mutation ? "stale" : task.verificationStatus,
       phase,
-      toolCalls: task.toolCalls + 1,
+      toolCalls,
       repeatedToolCalls: repeated,
+      todoRevision,
+      lastTodoUpdateToolCall: todoChanged ? toolCalls : task.lastTodoUpdateToolCall,
+      ...(todoChanged ? { todoReminderRevision: undefined } : {}),
       mutationRevision: mutation ? task.mutationRevision + 1 : task.mutationRevision,
       lastToolSignature: signature,
       lastObservation: observation,

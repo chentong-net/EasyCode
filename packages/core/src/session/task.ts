@@ -5,6 +5,7 @@ import type {
   TaskOutcomeStatus,
   TaskPhase,
   TaskState,
+  Todo,
   VerificationRecord,
 } from "@easycode/schema"
 
@@ -28,6 +29,8 @@ export const createTaskState = (
   verifications: [],
   toolCalls: 0,
   repeatedToolCalls: 0,
+  todoRevision: 0,
+  lastTodoUpdateToolCall: 0,
   mutationRevision: 0,
   budget: {
     softSteps: Math.max(1, Math.floor(checkpointSteps * 0.7)),
@@ -121,7 +124,7 @@ export const recordVerification = (task: TaskState, verification: VerificationRe
   }
 }
 
-export const renderTaskState = (task: TaskState): string => {
+export const renderTaskState = (task: TaskState, todos: Todo[] = []): string => {
   const lines = [
     "<task-state>",
     `阶段：${task.phase}`,
@@ -131,6 +134,13 @@ export const renderTaskState = (task: TaskState): string => {
     ...task.contract.acceptance.map((item) => `- ${item}`),
     "约束：",
     ...task.contract.constraints.map((item) => `- ${item}`),
+    "当前待办：",
+    ...(todos.length > 0
+      ? todos.map((todo) => {
+          const marker = todo.status === "completed" ? "[x]" : todo.status === "in_progress" ? "[~]" : "[ ]"
+          return `- ${marker} ${todo.content}`
+        })
+      : ["- 无"]),
     `修改文件：${task.changedPaths.length > 0 ? task.changedPaths.join("、") : "无"}`,
     `验证状态：${task.verificationStatus}`,
     `步骤窗口：${task.budget.usedSteps}/${task.budget.checkpointSteps}（累计 ${task.budget.totalSteps}，软上限 ${task.budget.softSteps}）`,
@@ -148,6 +158,13 @@ export const renderTaskState = (task: TaskState): string => {
   if (task.lastObservation) lines.push(`最近观察：${task.lastObservation}`)
   if (task.repeatedToolCalls > 0) {
     lines.push(`重复工具调用：${task.repeatedToolCalls} 次；若没有新信息，请更换策略或说明阻塞。`)
+  }
+  if (
+    task.todoReminderRevision === task.todoRevision &&
+    todos.length > 1 &&
+    todos.some((todo) => todo.status !== "completed")
+  ) {
+    lines.push("待办更新提醒：已完成的工作请立即标为 completed，并把下一项标为 in_progress。")
   }
   if (task.verificationStatus === "stale") {
     lines.push("代码已经修改但验证尚未完成。结束任务前应执行相关验证，或明确说明无法验证的原因。")
@@ -186,13 +203,16 @@ export const finishTask = (
   }
 }
 
-export const taskMemorySummary = (task: TaskState | undefined): string => {
+export const taskMemorySummary = (task: TaskState | undefined, todos: Todo[] = []): string => {
   if (!task) return "无"
+  const completedTodos = todos.filter((todo) => todo.status === "completed").length
+  const currentTodo = todos.find((todo) => todo.status === "in_progress")
   return [
     `目标：${task.contract.goal}`,
     `阶段：${task.phase}`,
     `修改文件：${task.changedPaths.join("、") || "无"}`,
     `验证状态：${task.verificationStatus}`,
+    `待办：${completedTodos}/${todos.length}${currentTodo ? `，进行中：${currentTodo.content}` : ""}`,
     `步骤窗口：${task.budget.usedSteps}/${task.budget.checkpointSteps}（累计 ${task.budget.totalSteps}）`,
     ...task.verifications.slice(-3).map((item) => `验证：${item.status} ${item.summary}`),
     ...(task.lastObservation ? [`最近观察：${task.lastObservation}`] : []),

@@ -32,7 +32,8 @@ export const todoWriteTool = defineTool({
     "维护当前会话的任务清单，用于规划多步骤任务并跟踪进度。",
     "每次调用都会用新清单整体替换旧清单，因此必须给出全部条目。",
     "同一时刻只应该有一项处于 in_progress。",
-    "任务完成后要把对应条目改成 completed，不要留着不管。",
+    "每完成一项后立即再次调用本工具：把该项改为 completed，并把下一项改为 in_progress。",
+    "不要等全部工作结束后才一次性更新所有状态。",
     "只做简单的一两步操作时不需要使用这个工具。",
   ].join("\n"),
   input: inputSchema,
@@ -42,6 +43,7 @@ export const todoWriteTool = defineTool({
   resources: () => [],
   savePatterns: () => [],
   execute: async (input, context) => {
+    const previous = context.session.todos()
     const todos = input.todos.map((todo) => ({ content: todo.content.trim(), status: todo.status }))
     const empty = todos.filter((todo) => todo.content.length === 0)
     if (empty.length > 0) throw new ToolFailure("任务内容不能为空", { kind: "invalid_input" })
@@ -56,10 +58,11 @@ export const todoWriteTool = defineTool({
     await context.session.setTodos(todos)
 
     const completed = todos.filter((todo) => todo.status === "completed").length
+    const changed = !sameTodos(previous, todos)
     context.logger.info("任务清单已更新", { total: todos.length, completed })
 
     return {
-      output: { todos, total: todos.length, completed },
+      output: { todos, total: todos.length, completed, changed },
       content: [
         {
           type: "text",
@@ -82,5 +85,12 @@ const renderTodos = (todos: Array<{ content: string; status: string }>): string 
       return `${marker} ${todo.content}`
     })
     .join("\n")
+
+const sameTodos = (
+  left: Array<{ content: string; status: string }>,
+  right: Array<{ content: string; status: string }>,
+): boolean =>
+  left.length === right.length &&
+  left.every((todo, index) => todo.content === right[index]?.content && todo.status === right[index]?.status)
 
 export type { Input }
