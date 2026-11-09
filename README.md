@@ -1,6 +1,6 @@
 # EasyCode
 
-EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。
+EasyCode 在本地机器上运行，通过 OpenAI 兼容协议调用模型，在指定的工作目录内读写文件、检索内容、执行命令。入口有两个：命令行与 Electron 桌面端，两者共用同一套 Core 运行时。应用配置固定保存在 `~/easycode/.easycode/config.toml`。
 
 术语说明：本文保留 `epoch`、`baseline`、`checkpoint`、`snapshot`、`compaction` 的原始英文，并在首次出现时用括号标注中文提示。`epoch` 指一次冻结上下文从建立到重建的周期，不是模型训练中的 epoch，也不是 Unix 时间起点。
 
@@ -52,35 +52,51 @@ packages/
 
 ```bash
 npm install
-cp .env.example .env   # 可选；桌面端也可以在启动后通过运行配置填写
 ```
 
-桌面端也可以首次启动后在「运行配置」中填写模型服务与联网配置；保存后重启应用生效。命令行仍可通过 `.env` 或进程环境变量提供配置。
+首次启动会自动创建 `~/easycode/.easycode/config.toml`。可以双击桌面端后通过「运行配置」填写，也可以直接编辑该 TOML 文件；保存后重启应用生效。
 
-`.env` 位于仓库根目录，由 `.gitignore` 排除。Core 读取以下变量（环境变量优先级高于 `.env`）：
+配置文件示例：
 
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容协议的接口地址 |
-| `OPENAI_API_KEY` | 必填 | 接口密钥 |
-| `OPENAI_MODEL` | 必填 | 模型 id，会话创建后保持固定 |
-| `OPENAI_MODEL_CONTEXT_WINDOW` | `128000` | 上下文窗口大小，compaction（压缩）阈值据此计算 |
-| `OPENAI_MAX_OUTPUT_TOKENS` | `8192` | 单轮回复的输出预算，参与上下文计算 |
-| `OPENAI_TEMPERATURE` | 空 | 采样温度；留空时请求体省略该字段 |
-| `OPENAI_EXTRA_HEADERS` | 空 | 附加请求头，格式为 `KEY1=VALUE1,KEY2=VALUE2` |
-| `EASYCODE_WEB_SEARCH_PROVIDER` | 空（不启用） | 搜索厂商，取值 `deepseek` / `glm` / `tavily` |
-| `EASYCODE_WEB_SEARCH_API_KEY` | 空（不启用） | 搜索服务的通用 API Key |
-| `EASYCODE_WEB_FETCH_PROVIDER` | 空（不启用） | 网页读取厂商，可独立于搜索配置 |
-| `EASYCODE_WEB_FETCH_API_KEY` | 空（不启用） | 网页读取服务的通用 API Key |
-| `EASYCODE_WEB_TIMEOUT_MS` | `30000` | 单次厂商请求和响应读取的超时，最大 120000 |
-| `EASYCODE_WEB_MAX_RESPONSE_BYTES` | `8388608` | 厂商响应读取上限，最大 32 MB |
-| `EASYCODE_DATA_DIR` | `~/easycode/.easycode` | 会话日志、context snapshot（快照）与工具输出的存放目录，支持 `~` |
-| `EASYCODE_LOG_LEVEL` | `info` | 取值 `debug` / `info` / `warn` / `error`；日志写入 stderr，设置 `EASYCODE_LOG_FILE` 时同时落盘 |
-| `EASYCODE_ENV_FILE` | 空 | 显式指定配置文件路径，优先级高于工作目录下的 `.env` |
+```toml
+[model]
+base_url = "https://api.openai.com/v1"
+api_key = "sk-..."
+name = "gpt-4o"
+context_window = 128000
+max_output_tokens = 8192
+# temperature = 0.2
 
-密钥只在 Core 进程内使用，渲染进程通过 HTTP 接口获取会话数据。
+[model.headers]
+# "X-Example" = "value"
 
-搜索和抓取分别要求同时配置 Provider 与对应的通用 API Key；任意一项缺失时，该工具不会注册。系统不会自动选择厂商，也不会复用 `OPENAI_API_KEY`。
+[web]
+timeout_ms = 30000
+max_response_bytes = 8388608
+user_agent = "EasyCode/0.1"
+
+[web.search]
+provider = "tavily"
+api_key = "..."
+
+[web.fetch]
+provider = "glm"
+api_key = "..."
+
+[runtime]
+log_level = "info"
+```
+
+路径规则是固定的，不读取环境变量，也不提供配置入口：
+
+- EasyCode 根目录：`~/easycode`
+- 内部状态目录：`~/easycode/.easycode`
+- 配置文件：`~/easycode/.easycode/config.toml`
+- 会话、快照、日志和工具输出：`~/easycode/.easycode/`
+
+密钥只保存在配置文件与 Core 进程内，HTTP 配置接口只返回是否已配置。环境变量不会覆盖配置文件中的值。
+
+搜索和抓取分别要求同时配置 Provider 与对应的 API Key；任意一项缺失时，该工具不会注册。系统不会自动选择厂商，也不会复用模型 API Key。
 
 ## 构建与检查
 
@@ -154,7 +170,7 @@ npm run package --workspace @easycode/desktop
 
 服务端口由系统分配，地址与令牌经预加载脚本单向注入渲染层；渲染层调用主进程的能力为系统目录选择一项，工作区、会话、消息、工具调用均经 HTTP 接口完成。窗口标题栏与侧边栏、会话标题栏合并，macOS 上以 `titleBarStyle: hidden` 隐藏系统标题栏，并按平台为左上角的窗口按钮留出位置。
 
-开发模式下，桌面端读取仓库根目录的 `.env`；打包后的应用读取 Electron `userData` 目录下的 `.env`。
+开发模式与打包后的桌面端都读取同一个固定配置文件 `~/easycode/.easycode/config.toml`。
 
 ## 运行机制
 
@@ -194,7 +210,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 
 规则形如 `{ action, resource, effect }`，按顺序求值并取最后一条同时匹配 `action` 与 `resource` 的规则，`effect` 取值为 `allow` / `ask` / `deny`，默认裁决为 `ask`。一次调用涉及多个资源时取最严格的结果。
 
-内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
+内置 `build` agent 的规则集默认允许所有操作。结构化文件工具通过 `external_directory` 对工作目录之外的路径再次确认；`read` 动作读取用户项目中的 `.env` 与 `.env.*` 时需要确认；`bash` 命令包含 `rm -rf` 或 `sudo` 时需要确认；网页搜索与读取默认允许，配置对应 Provider 与 API Key 即表示接受第三方服务调用。`bash`、`grep` 等工具不会共享 `read` 的 `.env` 保护，`bash` 和 `glob` 也不会对命令或 pattern 中的外部路径做完整解析。这些 `.env` 规则针对被 Agent 操作的项目，与 EasyCode 自身配置无关。用户在界面上选择「总是允许」后，该决定保存为优先级更高的规则。
 
 ### 内置工具
 
@@ -211,7 +227,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | `websearch` | 使用已配置厂商检索网页 |
 | `webfetch` | 使用已配置厂商读取单个网页 |
 
-`glob` 与 `grep` 默认跳过 `node_modules`、`.git`、`dist` 等目录，`grep` 另外跳过二进制文件与超过 2MB 的文件。超长工具输出写入 `<EASYCODE_DATA_DIR>/tool-output/`，消息中保留落盘路径。
+`glob` 与 `grep` 默认跳过 `node_modules`、`.git`、`dist` 等目录，`grep` 另外跳过二进制文件与超过 2MB 的文件。超长工具输出写入 `~/easycode/.easycode/tool-output/`，消息中保留落盘路径。
 
 `websearch` 与 `webfetch` 的配置、HTTP、厂商映射和工具实现集中在 `packages/core/src/tool/builtin/web`，通过 `createBuiltinTools()` 按普通内置工具注册。DeepSeek 使用 Search/Fetch，GLM 使用 Web Search/Reader，Tavily 使用 Search/Extract；厂商地址固定。工具默认最多返回 20 条搜索结果、30 秒超时和 8 MB 厂商响应，最终进入模型的内容仍经过统一输出截断。
 
@@ -227,8 +243,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | --- | --- | --- |
 | GET | `/api/health` | 服务状态、协议版本、模型 id、上下文窗口与输出预算 |
 | GET | `/api/agents` | 可用 agent 列表 |
-| GET | `/api/config` | 可安全展示的运行配置；密钥只返回是否已配置 |
-| PUT | `/api/config` | 保存模型、联网、本地存储与日志配置 |
+| GET | `/api/config` | 可安全展示的 TOML 运行配置；密钥只返回是否已配置 |
+| PUT | `/api/config` | 保存模型、联网和日志配置到固定 `config.toml` |
 | GET | `/api/workspaces` | 工作区列表 |
 | POST | `/api/workspaces` | 添加工作区，请求体为 `{ directory }` |
 | PATCH | `/api/workspaces/{id}` | 重命名工作区，请求体为 `{ name }` |
@@ -256,7 +272,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 ## 数据目录
 
 ```
-<EASYCODE_DATA_DIR>/
+~/easycode/.easycode/
+  config.toml                       固定运行配置
   workspaces.json                   工作区名称与目录注册表
   sessions/<会话ID>/session.json    会话元信息
   sessions/<会话ID>/events.jsonl    持久化事件，append-only
@@ -269,7 +286,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 `session.json` 是事件日志的派生缓存，供会话列表读取。当前实现下，它缺失、无法解析或结构不符时会被跳过，不会自动从事件日志重建；事件日志本身仍保留完整的 `session.created` 元信息。
 
 每次真正开始 compaction（压缩）时，还会在
-`<EASYCODE_DATA_DIR>/compaction-contexts/<会话ID>/` 下创建独立诊断目录：
+`~/easycode/.easycode/compaction-contexts/<会话ID>/` 下创建独立诊断目录：
 
 - `before.json`：触发 compaction 前准备发送给主模型的完整请求；
 - `after.json`：新 epoch 建立后，真正准备发送给主模型的完整请求；
@@ -283,8 +300,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 ## 当前实现范围
 
 - 单个内置 agent：`build`，每 30 步进入一次续行检查点，默认不设置固定任务上限
-- 模型可在桌面端运行配置中设置，也可继续通过 `.env` 配置；保存后重启生效，会话内模型保持一致
-- 运行配置覆盖模型连接、上下文与输出预算、温度、附加请求头、网页搜索/读取、数据目录和日志级别；接口不会返回已保存的密钥明文
+- 模型和联网配置只保存在 `~/easycode/.easycode/config.toml`；保存后重启生效，会话内模型保持一致
+- 运行配置覆盖模型连接、上下文与输出预算、温度、附加请求头、网页搜索/读取和日志级别；数据目录固定，不参与配置；接口不会返回已保存的密钥明文
 - 基础工具覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
 - 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
 - 多工作区：桌面端可添加多个本地目录，按工作区展示会话，并支持右键重命名、置顶和删除

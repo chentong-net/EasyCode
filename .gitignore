@@ -10,7 +10,7 @@ out/
 release/
 *.tsbuildinfo
 
-# 环境变量（只提交 .env.example）
+# 旧版敏感文件，保留忽略规则以免误提交；应用不再读取这些文件
 .env
 .env.local
 .env.*.local
