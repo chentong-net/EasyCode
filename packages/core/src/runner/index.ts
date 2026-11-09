@@ -1236,6 +1236,12 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       )
     }
 
+    const openTodoCount = handle.state.session.todos.filter((todo) => todo.status !== "completed").length
+    if (openTodoCount > 0) {
+      if (status === "success") status = "partial"
+      remaining.push(`仍有 ${openTodoCount} 个待办未完成。`)
+    }
+
     await appendTask(
       handle,
       finishTask(task, {
