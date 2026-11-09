@@ -11,16 +11,20 @@ const logger = createLogger("config")
 /**
  * Core 的运行配置。
  *
- * 全部来自环境变量（可以由 .env 提供）。这里只做「读取 + 校验 + 给默认值」，
- * 不做任何业务判断，目的是让配置错误尽可能早地暴露出来，
- * 而不是等到第一次调用模型时才报一个含糊的错。
+ * 全部来自环境变量（可以由 .env 提供）。这里只做「读取 + 校验 + 给默认值」。
+ * 缺少模型凭据时 Core 仍会启动，桌面端才能展示应用内设置页；真正请求模型时
+ * 再由 LLM 客户端给出可操作的配置提示。
  */
 export interface CoreConfig {
+  /** 应用配置文件。设置界面会把需要持久化的运行配置写回这里。 */
+  envFile: string
   /** 模型服务地址 */
   baseUrl: string
   apiKey: string
   /** 固定使用的模型 id */
   model: string
+  /** 是否已经具备发起模型请求所需的最小配置。 */
+  modelConfigured: boolean
   /** 模型上下文窗口大小，compaction（压缩）机制据此判断何时执行 */
   contextWindow: number
   /** 单轮回复的输出预算，参与上下文计算，并作为 `max_tokens` 发送给模型服务 */
@@ -71,31 +75,23 @@ export interface LoadConfigOptions {
 export const loadCoreConfig = (options: LoadConfigOptions = {}): CoreConfig => {
   const cwd = options.cwd ?? process.cwd()
 
-  const envFile = options.envFile ?? process.env.EASYCODE_ENV_FILE ?? resolve(cwd, ".env")
-  loadEnvFile(resolve(envFile))
+  const envFile = resolve(expandHome(options.envFile ?? process.env.EASYCODE_ENV_FILE ?? resolve(cwd, ".env")))
+  loadEnvFile(envFile)
 
   const baseUrl = readString("OPENAI_BASE_URL") ?? "https://api.openai.com/v1"
-  const apiKey = readString("OPENAI_API_KEY")
-  const model = readString("OPENAI_MODEL")
-
-  const missing: string[] = []
-  if (!apiKey) missing.push("OPENAI_API_KEY")
-  if (!model) missing.push("OPENAI_MODEL")
-  if (missing.length > 0) {
-    throw new Error(
-      `缺少必要的模型配置：${missing.join("、")}。\n` +
-        `请在项目根目录的 .env 中补全（可参考 .env.example），或直接设置对应的环境变量。`,
-    )
-  }
+  const apiKey = readString("OPENAI_API_KEY") ?? ""
+  const model = readString("OPENAI_MODEL") ?? ""
 
   // 路径必须先展开 `~` 再 resolve：resolve 不认识 `~`，
   // 否则会在当前工作目录下创建一个名叫 `~` 的目录，且不会报错
   const dataDir = resolve(expandHome(readString("EASYCODE_DATA_DIR") ?? DEFAULT_DATA_DIR))
 
   const config: CoreConfig = {
+    envFile,
     baseUrl,
-    apiKey: apiKey as string,
-    model: model as string,
+    apiKey,
+    model,
+    modelConfigured: apiKey.length > 0 && model.length > 0,
     contextWindow: readPositiveInt("OPENAI_MODEL_CONTEXT_WINDOW") ?? DEFAULT_CONTEXT_WINDOW,
     maxOutputTokens: readPositiveInt("OPENAI_MAX_OUTPUT_TOKENS") ?? DEFAULT_MAX_OUTPUT_TOKENS,
     dataDir,
@@ -108,8 +104,10 @@ export const loadCoreConfig = (options: LoadConfigOptions = {}): CoreConfig => {
   if (headers) config.headers = headers
 
   logger.info("配置加载完成", {
+    envFile: config.envFile,
     baseUrl: config.baseUrl,
     model: config.model,
+    modelConfigured: config.modelConfigured,
     contextWindow: config.contextWindow,
     dataDir: config.dataDir,
     hasTemperature: temperature !== undefined,

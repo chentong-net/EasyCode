@@ -46,6 +46,9 @@ export const Endpoints = {
   /** 可用的 agent 列表 */
   agents: (): string => `${API_PREFIX}/agents`,
 
+  /** 运行配置：GET 读取 / PUT 保存 */
+  config: (): string => `${API_PREFIX}/config`,
+
   /** 工作区集合：GET 列表 / POST 添加 */
   workspaces: (): string => `${API_PREFIX}/workspaces`,
 

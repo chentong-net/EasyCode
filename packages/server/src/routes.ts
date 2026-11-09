@@ -22,6 +22,7 @@ import {
   QuestionReplyRequest,
   RenameWorkspaceRequest,
   RenameSessionRequest,
+  RuntimeConfigUpdateRequest,
   AFTER_QUERY_PARAM,
   AUTH_HEADER,
   type HealthResponse,
@@ -124,6 +125,19 @@ const handleRequest = async (
       core.agents.all().map((agent) => ({ id: agent.id, description: agent.description })),
     )
     return
+  }
+
+  if (resource === "config" && rest.length === 0) {
+    if (method === "GET") {
+      sendJSON(res, 200, await core.configuration.read())
+      return
+    }
+    if (method === "PUT") {
+      const body = parseBody(RuntimeConfigUpdateRequest, await readJSON(req))
+      sendJSON(res, 200, await core.configuration.update(body))
+      return
+    }
+    throw new ProtocolError("not_found", `不支持的方法：${method} ${url.pathname}`)
   }
 
   if (resource === "workspaces") {
@@ -368,6 +382,8 @@ const handleFailure = (logger: Logger, req: IncomingMessage, res: ServerResponse
 export const describeEndpoints = (): string[] => [
   `GET  ${Endpoints.health()}`,
   `GET  ${Endpoints.agents()}`,
+  `GET  ${Endpoints.config()}`,
+  `PUT  ${Endpoints.config()}`,
   `GET  ${Endpoints.workspaces()}`,
   `POST ${Endpoints.workspaces()}`,
   `PATCH ${Endpoints.workspace(":id")}`,

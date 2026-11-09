@@ -218,3 +218,60 @@ export const QuestionReplyRequest = z.object({
 })
 
 export type QuestionReplyRequest = z.infer<typeof QuestionReplyRequest>
+
+/** 配置界面支持的联网服务。 */
+export const WebProvider = z.enum(["deepseek", "glm", "tavily"])
+
+export type WebProvider = z.infer<typeof WebProvider>
+
+/**
+ * 可安全展示给渲染进程的运行配置。
+ *
+ * API Key 与附加请求头只暴露“是否已经配置”，避免本地 HTTP 接口把秘密
+ * 重新送回界面进程。
+ */
+export const RuntimeConfigResponse = z.object({
+  envFile: z.string(),
+  baseUrl: z.string(),
+  model: z.string(),
+  modelConfigured: z.boolean(),
+  contextWindow: z.number().int().positive(),
+  maxOutputTokens: z.number().int().positive(),
+  temperature: z.number().finite().optional(),
+  hasApiKey: z.boolean(),
+  hasExtraHeaders: z.boolean(),
+  webSearchProvider: WebProvider.optional(),
+  hasWebSearchApiKey: z.boolean(),
+  webFetchProvider: WebProvider.optional(),
+  hasWebFetchApiKey: z.boolean(),
+  dataDir: z.string(),
+  logLevel: z.enum(["debug", "info", "warn", "error"]),
+})
+
+export type RuntimeConfigResponse = z.infer<typeof RuntimeConfigResponse>
+
+/**
+ * 更新运行配置。
+ *
+ * 密钥字段：
+ * - 省略：保持当前值；
+ * - null：清除；
+ * - 非空字符串：替换。
+ */
+export const RuntimeConfigUpdateRequest = z.object({
+  baseUrl: z.string().trim().url("接口地址必须是合法 URL"),
+  model: z.string().trim().min(1, "模型 ID 不能为空"),
+  contextWindow: z.number().int().positive("上下文窗口必须是正整数"),
+  maxOutputTokens: z.number().int().positive("输出上限必须是正整数"),
+  temperature: z.number().finite().optional().nullable(),
+  apiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+  extraHeaders: z.string().trim().min(1).max(20_000).optional().nullable(),
+  webSearchProvider: WebProvider.or(z.literal("")),
+  webSearchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+  webFetchProvider: WebProvider.or(z.literal("")),
+  webFetchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
+  dataDir: z.string().trim().min(1, "数据目录不能为空"),
+  logLevel: z.enum(["debug", "info", "warn", "error"]),
+})
+
+export type RuntimeConfigUpdateRequest = z.infer<typeof RuntimeConfigUpdateRequest>

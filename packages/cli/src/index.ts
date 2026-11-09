@@ -64,6 +64,9 @@ const runCommand = async (args: ParsedArgs): Promise<void> => {
   const io = createTerminalIO()
 
   try {
+    if (!core.config.modelConfigured) {
+      throw new Error("模型尚未配置。请先在桌面端设置页完成配置，或补全 .env 中的 OPENAI_API_KEY 与 OPENAI_MODEL。")
+    }
     const sessionID = await resolveSession(core, args, io)
 
     const renderer = createSessionRenderer({

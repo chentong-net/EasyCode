@@ -32,7 +32,7 @@ const authHeaders = (token: string | undefined): Record<string, string> =>
  */
 export const requestJSON = async <T>(
   transport: TransportOptions,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   options: { body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> => {

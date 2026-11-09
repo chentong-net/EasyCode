@@ -16,6 +16,8 @@ import {
   QuestionReplyRequest,
   RenameWorkspaceRequest,
   RenameSessionRequest,
+  RuntimeConfigResponse,
+  RuntimeConfigUpdateRequest,
   SessionListResponse,
   SessionResponse,
   WorkspaceListResponse,
@@ -87,6 +89,10 @@ export interface EasyCodeClient {
   health(signal?: AbortSignal): Promise<HealthResponse>
   /** 可用的 agent 列表 */
   agents(signal?: AbortSignal): Promise<AgentInfo[]>
+  config: {
+    get(signal?: AbortSignal): Promise<RuntimeConfigResponse>
+    update(input: RuntimeConfigUpdateRequest, signal?: AbortSignal): Promise<RuntimeConfigResponse>
+  }
   workspaces: {
     list(signal?: AbortSignal): Promise<Workspace[]>
     add(input: CreateWorkspaceRequest, signal?: AbortSignal): Promise<Workspace>
@@ -142,6 +148,11 @@ export const createClient = (options: CreateClientOptions): EasyCodeClient => {
   return {
     health: (signal) => get(transport, Endpoints.health(), HealthResponse, signal),
     agents: (signal) => get(transport, Endpoints.agents(), AgentListResponse, signal),
+
+    config: {
+      get: (signal) => get(transport, Endpoints.config(), RuntimeConfigResponse, signal),
+      update: (input, signal) => put(transport, Endpoints.config(), input, RuntimeConfigResponse, signal),
+    },
 
     workspaces: {
       list: (signal) => get(transport, Endpoints.workspaces(), WorkspaceListResponse, signal),
@@ -253,6 +264,20 @@ const patch = async <T extends ZodTypeAny>(
   signal?: AbortSignal,
 ): Promise<z.infer<T>> => {
   const raw = await requestJSON<unknown>(transport, "PATCH", path, {
+    body,
+    ...(signal === undefined ? {} : { signal }),
+  })
+  return parseResponse(schema, raw, path)
+}
+
+const put = async <T extends ZodTypeAny>(
+  transport: TransportOptions,
+  path: string,
+  body: unknown,
+  schema: T,
+  signal?: AbortSignal,
+): Promise<z.infer<T>> => {
+  const raw = await requestJSON<unknown>(transport, "PUT", path, {
     body,
     ...(signal === undefined ? {} : { signal }),
   })

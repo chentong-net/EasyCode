@@ -20,6 +20,13 @@ async function* streamTurn(
   request: LLMRequest,
   logger: Logger,
 ): AsyncGenerator<LLMEvent> {
+  if (config.apiKey.trim().length === 0) {
+    throw new LLMError("auth", "模型 API Key 尚未配置，请先在设置中完成模型配置")
+  }
+  if (request.model.trim().length === 0) {
+    throw new LLMError("invalid_request", "模型 ID 尚未配置，请先在设置中选择或填写模型")
+  }
+
   const url = joinUrl(config.baseUrl, "chat/completions")
   const headers: Record<string, string> = {
     "content-type": "application/json",

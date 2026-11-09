@@ -1,5 +1,6 @@
 import { createAgentRegistry, type AgentRegistry } from "./agent.js"
 import { loadCoreConfig, toLLMClientConfig, type CoreConfig, type LoadConfigOptions } from "./config.js"
+import { createConfigurationService, type ConfigurationService } from "./configuration.js"
 import { createEventHub, type EventHub } from "./events.js"
 import { createLLMClient } from "./llm/client.js"
 import { createLogger, type Logger } from "./log.js"
@@ -33,6 +34,7 @@ export interface Core {
   store: SessionStore
   hub: EventHub
   agents: AgentRegistry
+  configuration: ConfigurationService
   sessions: SessionManager
   workspaces: WorkspaceManager
   permissions: PermissionService
@@ -59,6 +61,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const config = options.config ?? loadCoreConfig(options)
 
   const agents = createAgentRegistry()
+  const configuration = createConfigurationService({ config })
   const store = createSessionStore(config)
   const hub = createEventHub(logger)
   const llm = createLLMClient(toLLMClientConfig(config), logger.child("llm"))
@@ -113,6 +116,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
     store,
     hub,
     agents,
+    configuration,
     sessions,
     workspaces,
     permissions,
