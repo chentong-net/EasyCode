@@ -2,17 +2,15 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, resolve } from "node:path"
 
-import { dialog, ipcMain } from "electron"
+import { app, dialog, ipcMain } from "electron"
 
-import { IPC_SELECT_DIRECTORY, type SelectDirectoryRequest } from "../shared/ipc"
+import { IPC_RESTART_APP, IPC_SELECT_DIRECTORY, type SelectDirectoryRequest } from "../shared/ipc"
 import { log } from "./log"
 
 /**
  * 主进程侧唯一的一处 IPC。
  *
- * 只做一件事：弹出系统原生的目录选择框，把用户选中的绝对路径回给渲染层。
- * 渲染进程在沙箱中运行，既拿不到绝对路径，也没有任何 Web API 能唤起系统弹窗，
- * 因此这一处无法用 HTTP 接口替代。
+ * 提供两个只能在宿主侧完成的能力：目录选择和配置生效后的应用重启。
  *
  * 通道只注册一次，且在 app ready 之后调用。
  */
@@ -38,6 +36,14 @@ export const registerIpcHandlers = (): void => {
     const selected = result.filePaths[0]
     log.info("用户选择了工作目录", { directory: selected })
     return selected
+  })
+
+  ipcMain.handle(IPC_RESTART_APP, async (): Promise<void> => {
+    log.info("用户请求重启应用以应用配置")
+    setImmediate(() => {
+      app.relaunch()
+      app.quit()
+    })
   })
 }
 

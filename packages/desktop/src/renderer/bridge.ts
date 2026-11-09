@@ -34,10 +34,16 @@ export const toDisplayPath = (absolute: string): string => {
 /**
  * 打开系统原生的目录选择框。
  *
- * 用户取消时返回 undefined。这是渲染层唯一会调用主进程的地方，
- * 原因是沙箱里的网页没有任何办法唤起系统弹窗、也拿不到绝对路径。
+ * 用户取消时返回 undefined。沙箱里的网页没有标准 API 唤起系统弹窗，
+ * 也无法拿到用户选中的绝对路径。
  */
 export const selectDirectory = async (defaultPath?: string): Promise<string | undefined> => {
   if (bridge === undefined) return undefined
   return bridge.selectDirectory(defaultPath === undefined ? {} : { defaultPath })
+}
+
+/** 重启桌面应用；浏览器预览模式下不支持。 */
+export const restartApp = async (): Promise<void> => {
+  if (bridge === undefined) return
+  await bridge.restartApp()
 }

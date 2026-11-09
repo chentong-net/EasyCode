@@ -2,7 +2,8 @@
  * 主进程与渲染进程之间的 IPC 契约。
  *
  * EasyCode 的全部业务能力都走 Core 的 HTTP 接口，渲染进程不通过 IPC 做任何
- * 「业务」调用。这里只保留唯一一处**无法绕开**的能力：系统原生的目录选择弹窗。
+ * 「业务」调用。这里只保留两个宿主能力：系统原生目录选择，以及配置保存后的
+ * 应用重启。前者无法由网页唤起，后者必须由 Electron 主进程执行。
  *
  * 为什么它绕不开：渲染进程在沙箱里运行，拿不到用户选中的绝对路径，
  * 也没有任何 Web 标准 API 能唤起 macOS 的目录选择器。只有主进程的
@@ -14,6 +15,7 @@
  */
 
 export const IPC_SELECT_DIRECTORY = "easycode:select-directory"
+export const IPC_RESTART_APP = "easycode:restart-app"
 
 export interface SelectDirectoryRequest {
   /**

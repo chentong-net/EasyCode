@@ -1,13 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron"
 
-import { IPC_SELECT_DIRECTORY, type SelectDirectoryRequest } from "../shared/ipc"
+import { IPC_RESTART_APP, IPC_SELECT_DIRECTORY, type SelectDirectoryRequest } from "../shared/ipc"
 
 /**
  * 预加载脚本。
  *
- * 它向渲染层暴露两样东西：
+ * 它向渲染层暴露三样东西：
  * 1. 四个常量（Core 服务地址、访问令牌、运行平台、用户主目录），由主进程通过命令行参数一次性注入
  * 2. 一个函数（选择工作目录），走 IPC 调主进程的系统弹窗
+ * 3. 一个函数（重启应用），用于让配置保存后的修改真正进入 Core 启动流程
  *
  * 除这个函数之外，渲染进程无法触发主进程的任何行为——会话、消息、工具调用
  * 全部走 Core 的 HTTP 接口。之所以目录选择必须例外，是因为渲染进程在沙箱中运行，
@@ -64,5 +65,7 @@ contextBridge.exposeInMainWorld(
      */
     selectDirectory: (request?: SelectDirectoryRequest): Promise<string | undefined> =>
       ipcRenderer.invoke(IPC_SELECT_DIRECTORY, request) as Promise<string | undefined>,
+
+    restartApp: (): Promise<void> => ipcRenderer.invoke(IPC_RESTART_APP) as Promise<void>,
   }),
 )

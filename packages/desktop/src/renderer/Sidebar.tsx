@@ -9,6 +9,7 @@ import {
   Pin,
   PinOff,
   Plus,
+  Settings as SettingsIcon,
   Trash2,
   X,
 } from "lucide-react"
@@ -22,7 +23,15 @@ type ContextMenu =
   | { kind: "session"; sessionID: string; x: number; y: number }
   | { kind: "workspace"; workspaceID: string; x: number; y: number }
 
-export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace: WorkspaceState }) => {
+export const Sidebar = ({
+  store,
+  workspace,
+  onOpenSettings,
+}: {
+  store: EasyCodeStore
+  workspace: WorkspaceState
+  onOpenSettings: () => void
+}) => {
   const hasWorkspace = workspace.activeWorkspace !== undefined
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
   const [initializedWorkspaceIDs, setInitializedWorkspaceIDs] = useState<Set<string>>(() => new Set())
@@ -253,6 +262,15 @@ export const Sidebar = ({ store, workspace }: { store: EasyCodeStore; workspace:
     <aside className="sidebar">
       <div className="sidebar-brand">
         <span className="brand-name">EasyCode</span>
+        <button
+          type="button"
+          className="settings-button"
+          onClick={onOpenSettings}
+          aria-label="打开运行配置"
+          title="运行配置"
+        >
+          <SettingsIcon size={16} strokeWidth={1.8} />
+        </button>
       </div>
 
       <div className="sidebar-top">

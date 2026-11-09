@@ -1,6 +1,8 @@
 import type { EasyCodeClient } from "@easycode/client"
+import { useEffect, useState } from "react"
 
 import { Chat } from "./Chat"
+import { SettingsDialog } from "./Settings"
 import { Sidebar } from "./Sidebar"
 import { useEasyCode } from "./store"
 import { useWorkspaces } from "./workspace"
@@ -18,15 +20,31 @@ export const App = ({ client }: { client: EasyCodeClient }) => {
   const workspace = useWorkspaces(client)
   const store = useEasyCode(client, workspace.directory)
   const error = store.error ?? workspace.error
+  const [settingsOpen, setSettingsOpen] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void client.config
+      .get(controller.signal)
+      .then((config) => {
+        if (!controller.signal.aborted && !config.modelConfigured) setSettingsOpen(true)
+      })
+      .catch(() => {
+        // 配置读取失败会由设置页在打开时展示具体原因。
+      })
+    return () => controller.abort()
+  }, [client])
 
   return (
     <>
       <div className="app">
         <div className="app-body">
-          <Sidebar store={store} workspace={workspace} />
+          <Sidebar store={store} workspace={workspace} onOpenSettings={() => setSettingsOpen(true)} />
           <Chat store={store} workspace={workspace} />
         </div>
       </div>
+
+      <SettingsDialog client={client} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {error !== undefined && (
         <div className="error-toast" role="alert">

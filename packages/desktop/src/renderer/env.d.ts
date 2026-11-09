@@ -16,6 +16,8 @@ export interface EasyCodeBridge {
   homeDirectory: string
   /** 打开系统原生的目录选择框；用户取消时返回 undefined */
   selectDirectory(request?: { defaultPath?: string }): Promise<string | undefined>
+  /** 重启桌面应用，让保存后的运行配置重新加载 */
+  restartApp(): Promise<void>
 }
 
 declare global {
