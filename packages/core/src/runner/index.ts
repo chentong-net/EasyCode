@@ -799,8 +799,7 @@ export const createRunner = (deps: RunnerDeps): RunDriver => {
       todoTask.outcome === undefined &&
       todos.length > 1 &&
       openTodos.length > 0 &&
-      todoTask.toolCalls - todoTask.lastTodoUpdateToolCall >= 2 &&
-      todoTask.todoReminderRevision !== todoTask.todoRevision
+      todoTask.toolCalls - todoTask.lastTodoUpdateToolCall >= 2
 
     if (needsTodoProgressUpdate && todoTask) {
       await appendTask(handle, {
