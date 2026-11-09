@@ -1966,8 +1966,14 @@ pre {
   color: var(--success);
 }
 
+.settings-secret-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
 .settings-clear-secret {
-  align-self: flex-start;
   padding: 0;
   background: transparent;
   border: none;
@@ -2002,6 +2008,7 @@ pre {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 /* -------------------------------------------------------------- 浮层提示 */

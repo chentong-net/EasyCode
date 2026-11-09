@@ -24,7 +24,6 @@ interface ConfigForm {
   webFetchApiKey: string
   webTimeoutMs: string
   webMaxResponseBytes: string
-  webUserAgent: string
   logLevel: RuntimeConfigResponse["logLevel"]
 }
 
@@ -55,7 +54,6 @@ const EMPTY_FORM: ConfigForm = {
   webFetchApiKey: "",
   webTimeoutMs: "30000",
   webMaxResponseBytes: "8388608",
-  webUserAgent: "EasyCode/0.1",
   logLevel: "info",
 }
 
@@ -200,7 +198,6 @@ export const SettingsDialog = ({
       ...secretUpdate("webFetchApiKey", form.webFetchApiKey, clear.webFetchApiKey),
       webTimeoutMs,
       webMaxResponseBytes,
-      webUserAgent: form.webUserAgent,
       logLevel: form.logLevel,
     }
 
@@ -360,7 +357,14 @@ export const SettingsDialog = ({
                       configured={config?.hasApiKey === true}
                       clearing={clear.apiKey}
                       value={form.apiKey}
-                      placeholder="留空保持当前密钥"
+                      placeholder={
+                        config?.hasApiKey === true ? "已保存，输入新密钥可替换" : "请输入 API Key"
+                      }
+                      hint={
+                        config?.hasApiKey === true
+                          ? "留空不会替换已保存的密钥；没有默认密钥。"
+                          : "密钥只保存在本机，不会显示明文。"
+                      }
                       onChange={(value) => setSecret("apiKey", value)}
                       onToggleClear={() => toggleClear("apiKey")}
                     />
@@ -396,9 +400,9 @@ export const SettingsDialog = ({
                       configured={config?.hasExtraHeaders === true}
                       clearing={clear.extraHeaders}
                       value={form.extraHeaders}
-                      placeholder={"X-Project: example\nX-Region: cn"}
-                      multiline
-                      hint="每行填写一个请求头，格式为 Name: Value"
+                      placeholder="X-Project: example; X-Region: cn"
+                      hint="多个请求头用分号分隔"
+                      masked={false}
                       onChange={(value) => setSecret("extraHeaders", value)}
                       onToggleClear={() => toggleClear("extraHeaders")}
                     />
@@ -444,7 +448,9 @@ export const SettingsDialog = ({
                       configured={config?.hasWebSearchApiKey === true}
                       clearing={clear.webSearchApiKey}
                       value={form.webSearchApiKey}
-                      placeholder="留空保持当前密钥"
+                      placeholder={
+                        config?.hasWebSearchApiKey === true ? "已保存，输入新密钥可替换" : "请输入搜索 API Key"
+                      }
                       onChange={(value) => setSecret("webSearchApiKey", value)}
                       onToggleClear={() => toggleClear("webSearchApiKey")}
                     />
@@ -464,7 +470,9 @@ export const SettingsDialog = ({
                       configured={config?.hasWebFetchApiKey === true}
                       clearing={clear.webFetchApiKey}
                       value={form.webFetchApiKey}
-                      placeholder="留空保持当前密钥"
+                      placeholder={
+                        config?.hasWebFetchApiKey === true ? "已保存，输入新密钥可替换" : "请输入网页读取 API Key"
+                      }
                       onChange={(value) => setSecret("webFetchApiKey", value)}
                       onToggleClear={() => toggleClear("webFetchApiKey")}
                     />
@@ -488,18 +496,8 @@ export const SettingsDialog = ({
                         onChange={(event) => setField("webMaxResponseBytes", event.target.value)}
                       />
                     </Field>
-                    <Field label="联网 User-Agent" wide>
-                      <input
-                        value={form.webUserAgent}
-                        onChange={(event) => setField("webUserAgent", event.target.value)}
-                        spellCheck={false}
-                      />
-                    </Field>
                   </div>
-                  <p className="settings-note">
-                    服务与对应密钥都配置后，Agent 才会获得相应工具。User-Agent 是发送给联网服务、用于标识客户端的
-                    HTTP 请求头，通常无需修改。
-                  </p>
+                  <p className="settings-note">服务与对应密钥都配置后，Agent 才会获得相应工具。</p>
                 </section>
 
                 <section className="settings-section">
@@ -538,7 +536,6 @@ export const SettingsDialog = ({
           </div>
 
           <footer className="settings-footer">
-            <span>配置文件路径：~/easycode/.easycode/config.toml</span>
             <div className="settings-footer-actions">
               <button type="button" className="btn" onClick={onClose} disabled={saving || restarting}>
                 取消
@@ -583,7 +580,7 @@ const SecretField = ({
   value,
   placeholder,
   hint,
-  multiline = false,
+  masked = true,
   onChange,
   onToggleClear,
 }: {
@@ -593,41 +590,32 @@ const SecretField = ({
   value: string
   placeholder: string
   hint?: string
-  multiline?: boolean
+  masked?: boolean
   onChange: (value: string) => void
   onToggleClear: () => void
 }) => (
   <label className="settings-field">
     <span className="settings-label-row">
       <span className="settings-label">{label}</span>
-      <span className={configured && !clearing ? "settings-key-state settings-key-state-ok" : "settings-key-state"}>
-        {clearing ? "保存后清除" : configured ? "已保存" : "未配置"}
+      <span className="settings-secret-meta">
+        <span className={configured && !clearing ? "settings-key-state settings-key-state-ok" : "settings-key-state"}>
+          {clearing ? "保存后清除" : configured ? "已保存" : "未配置"}
+        </span>
+        {configured && (
+          <button type="button" className="settings-clear-secret" onClick={onToggleClear}>
+            {clearing ? "取消" : "清除"}
+          </button>
+        )}
       </span>
     </span>
-    {multiline ? (
-      <textarea
-        rows={2}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={clearing ? "保存后将清除当前值" : placeholder}
-        disabled={clearing}
-        spellCheck={false}
-      />
-    ) : (
-      <input
-        type="password"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={clearing ? "保存后将清除当前值" : placeholder}
-        disabled={clearing}
-        spellCheck={false}
-      />
-    )}
-    {configured && (
-      <button type="button" className="settings-clear-secret" onClick={onToggleClear}>
-        {clearing ? "取消清除" : "清除已保存值"}
-      </button>
-    )}
+    <input
+      type={masked ? "password" : "text"}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={clearing ? "保存后将清除当前值" : placeholder}
+      disabled={clearing}
+      spellCheck={false}
+    />
     {hint !== undefined && <span className="settings-hint">{hint}</span>}
   </label>
 )
@@ -646,7 +634,6 @@ const toForm = (config: RuntimeConfigResponse): ConfigForm => ({
   webFetchApiKey: "",
   webTimeoutMs: String(config.webTimeoutMs),
   webMaxResponseBytes: String(config.webMaxResponseBytes),
-  webUserAgent: config.webUserAgent,
   logLevel: config.logLevel,
 })
 
