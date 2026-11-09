@@ -1603,7 +1603,8 @@ pre {
   .tool-dot-running,
   .message-running span,
   .task-todo-spinner,
-  .task-live svg {
+  .task-live svg,
+  .settings-test-spinner {
     animation: none;
     opacity: 1;
   }
@@ -1820,6 +1821,50 @@ pre {
 .settings-section-heading span {
   color: var(--text-faint);
   font-size: 12px;
+}
+
+.settings-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-test-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+}
+
+.settings-test-spinner {
+  animation: task-spin 1.1s linear infinite;
+}
+
+.settings-test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-test-result svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.settings-test-result-testing {
+  color: var(--text-dim);
+}
+
+.settings-test-result-success {
+  color: var(--success);
+}
+
+.settings-test-result-error {
+  color: var(--danger);
 }
 
 .settings-grid {

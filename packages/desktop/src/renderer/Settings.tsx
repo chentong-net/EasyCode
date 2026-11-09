@@ -4,7 +4,7 @@ import {
   RuntimeConfigUpdateRequest,
   type WebProvider,
 } from "@easycode/protocol"
-import { RotateCw, X } from "lucide-react"
+import { AlertCircle, Check, LoaderCircle, RotateCw, X } from "lucide-react"
 import { useEffect, useState, type FormEvent } from "react"
 
 import { hasHost, restartApp } from "./bridge"
@@ -34,6 +34,12 @@ interface ClearState {
   webSearchApiKey: boolean
   webFetchApiKey: boolean
 }
+
+type ConnectionTestState =
+  | { phase: "idle" }
+  | { phase: "testing" }
+  | { phase: "success"; latencyMs: number }
+  | { phase: "error"; message: string }
 
 const EMPTY_FORM: ConfigForm = {
   baseUrl: "",
@@ -77,12 +83,14 @@ export const SettingsDialog = ({
   const [restarting, setRestarting] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | undefined>()
+  const [connectionTest, setConnectionTest] = useState<ConnectionTestState>({ phase: "idle" })
 
   useEffect(() => {
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
     setSaved(false)
+    setConnectionTest({ phase: "idle" })
     setError(undefined)
     setClear(EMPTY_CLEAR)
     void (async () => {
@@ -102,6 +110,14 @@ export const SettingsDialog = ({
 
   useEffect(() => {
     if (!open) return
+    const frame = window.requestAnimationFrame(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape" && !saving && !restarting) onClose()
     }
@@ -113,6 +129,7 @@ export const SettingsDialog = ({
 
   const setField = <Key extends keyof ConfigForm>(key: Key, value: ConfigForm[Key]): void => {
     setSaved(false)
+    setConnectionTest({ phase: "idle" })
     setForm((current) => ({ ...current, [key]: value }))
   }
 
@@ -121,12 +138,14 @@ export const SettingsDialog = ({
     value: string,
   ): void => {
     setSaved(false)
+    setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: false }))
     setForm((current) => ({ ...current, [field]: value }))
   }
 
   const toggleClear = (field: keyof ClearState): void => {
     setSaved(false)
+    setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: !current[field] }))
     setForm((current) => ({ ...current, [field]: "" }))
   }
@@ -211,6 +230,34 @@ export const SettingsDialog = ({
     }
   }
 
+  const testConnection = async (): Promise<void> => {
+    if (connectionTest.phase === "testing") return
+    setConnectionTest({ phase: "testing" })
+    try {
+      const result = await client.config.test({
+        baseUrl: form.baseUrl,
+        model: form.model,
+        ...(clear.apiKey
+          ? { apiKey: null }
+          : form.apiKey.trim().length > 0
+            ? { apiKey: form.apiKey.trim() }
+            : {}),
+        ...(clear.extraHeaders
+          ? { extraHeaders: null }
+          : form.extraHeaders.trim().length > 0
+            ? { extraHeaders: form.extraHeaders.trim() }
+            : {}),
+      })
+      setConnectionTest(
+        result.ok
+          ? { phase: "success", latencyMs: result.latencyMs }
+          : { phase: "error", message: result.message ?? "连接测试失败" },
+      )
+    } catch (cause) {
+      setConnectionTest({ phase: "error", message: describeError(cause) })
+    }
+  }
+
   return (
     <div className="settings-backdrop" role="presentation" onMouseDown={() => !saving && !restarting && onClose()}>
       <section
@@ -266,7 +313,27 @@ export const SettingsDialog = ({
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>模型服务</h3>
-                    <span>OpenAI 兼容协议</span>
+                    <div className="settings-section-actions">
+                      <span>OpenAI 兼容协议</span>
+                      <button
+                        type="button"
+                        className="btn btn-small settings-test-button"
+                        onClick={() => void testConnection()}
+                        disabled={
+                          loading ||
+                          saving ||
+                          restarting ||
+                          connectionTest.phase === "testing" ||
+                          form.baseUrl.trim().length === 0 ||
+                          form.model.trim().length === 0
+                        }
+                      >
+                        {connectionTest.phase === "testing" && (
+                          <LoaderCircle size={13} className="settings-test-spinner" />
+                        )}
+                        {connectionTest.phase === "testing" ? "测试中…" : "测试连接"}
+                      </button>
+                    </div>
                   </div>
                   <div className="settings-grid">
                     <Field label="接口地址" wide>
@@ -275,7 +342,6 @@ export const SettingsDialog = ({
                         onChange={(event) => setField("baseUrl", event.target.value)}
                         placeholder="https://api.openai.com/v1"
                         spellCheck={false}
-                        autoFocus={!config?.hasApiKey}
                       />
                     </Field>
                     <Field
@@ -337,6 +403,23 @@ export const SettingsDialog = ({
                       onToggleClear={() => toggleClear("extraHeaders")}
                     />
                   </div>
+                  {connectionTest.phase === "testing" && (
+                    <p className="settings-test-result settings-test-result-testing">
+                      正在发送一次最小模型请求，可能产生少量用量…
+                    </p>
+                  )}
+                  {connectionTest.phase === "success" && (
+                    <p className="settings-test-result settings-test-result-success">
+                      <Check size={13} />
+                      连接成功，用时 {connectionTest.latencyMs}ms
+                    </p>
+                  )}
+                  {connectionTest.phase === "error" && (
+                    <p className="settings-test-result settings-test-result-error">
+                      <AlertCircle size={13} />
+                      {connectionTest.message}
+                    </p>
+                  )}
                 </section>
 
                 <section className="settings-section">
@@ -413,13 +496,16 @@ export const SettingsDialog = ({
                       />
                     </Field>
                   </div>
-                  <p className="settings-note">服务与对应密钥都配置后，Agent 才会获得相应工具。</p>
+                  <p className="settings-note">
+                    服务与对应密钥都配置后，Agent 才会获得相应工具。User-Agent 是发送给联网服务、用于标识客户端的
+                    HTTP 请求头，通常无需修改。
+                  </p>
                 </section>
 
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>本地运行</h3>
-                    <span>路径固定，修改后需要重启</span>
+                    <span>修改后需要重启</span>
                   </div>
                   <div className="settings-grid">
                     <Field label="日志级别">
@@ -439,10 +525,10 @@ export const SettingsDialog = ({
                   {config !== undefined && (
                     <>
                       <p className="settings-path">
-                        配置文件：<code>{config.configFile}</code>
+                        配置文件路径：<code>{config.configFile}</code>
                       </p>
                       <p className="settings-path">
-                        内部数据目录固定为 <code>~/easycode/.easycode</code>，不参与配置。
+                        数据目录：<code>~/easycode/.easycode</code>
                       </p>
                     </>
                   )}
@@ -452,12 +538,16 @@ export const SettingsDialog = ({
           </div>
 
           <footer className="settings-footer">
-            <span>配置文件固定为 ~/easycode/.easycode/config.toml</span>
+            <span>配置文件路径：~/easycode/.easycode/config.toml</span>
             <div className="settings-footer-actions">
               <button type="button" className="btn" onClick={onClose} disabled={saving || restarting}>
                 取消
               </button>
-              <button type="submit" className="btn btn-primary" disabled={loading || saving || restarting}>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={loading || saving || restarting || connectionTest.phase === "testing"}
+              >
                 {saving ? "保存中…" : "保存配置"}
               </button>
             </div>
