@@ -52,8 +52,10 @@ packages/
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.example .env   # 可选；桌面端也可以在启动后通过运行配置填写
 ```
+
+桌面端也可以首次启动后在「运行配置」中填写模型服务与联网配置；保存后重启应用生效。命令行仍可通过 `.env` 或进程环境变量提供配置。
 
 `.env` 位于仓库根目录，由 `.gitignore` 排除。Core 读取以下变量（环境变量优先级高于 `.env`）：
 
@@ -225,6 +227,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | --- | --- | --- |
 | GET | `/api/health` | 服务状态、协议版本、模型 id、上下文窗口与输出预算 |
 | GET | `/api/agents` | 可用 agent 列表 |
+| GET | `/api/config` | 可安全展示的运行配置；密钥只返回是否已配置 |
+| PUT | `/api/config` | 保存模型、联网、本地存储与日志配置 |
 | GET | `/api/workspaces` | 工作区列表 |
 | POST | `/api/workspaces` | 添加工作区，请求体为 `{ directory }` |
 | PATCH | `/api/workspaces/{id}` | 重命名工作区，请求体为 `{ name }` |
@@ -238,6 +242,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 | DELETE | `/api/sessions/{id}` | 永久删除会话 |
 | POST | `/api/sessions/{id}/pin` | 置顶或取消置顶，请求体为 `{ pinned }` |
 | GET | `/api/sessions/{id}/messages` | 消息列表（事件日志的投影结果） |
+| GET | `/api/sessions/{id}/task` | 当前任务工作记忆与进度 |
 | POST | `/api/sessions/{id}/prompt` | 提交用户输入，请求体为 `{ text, delivery? }` |
 | POST | `/api/sessions/{id}/interrupt` | 中断当前回合 |
 | GET | `/api/sessions/{id}/events` | 事件流（SSE，`after` 参数指定起始 `seq`） |
@@ -278,7 +283,8 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 ## 当前实现范围
 
 - 单个内置 agent：`build`，每 30 步进入一次续行检查点，默认不设置固定任务上限
-- 模型在 `.env` 中配置，会话内保持一致
+- 模型可在桌面端运行配置中设置，也可继续通过 `.env` 配置；保存后重启生效，会话内模型保持一致
+- 运行配置覆盖模型连接、上下文与输出预算、温度、附加请求头、网页搜索/读取、数据目录和日志级别；接口不会返回已保存的密钥明文
 - 基础工具覆盖读代码、找代码、改代码、跑验证、管进度和必要澄清
 - 配置 Provider 与对应 API Key 后增加网页搜索或网页读取
 - 多工作区：桌面端可添加多个本地目录，按工作区展示会话，并支持右键重命名、置顶和删除
@@ -292,6 +298,7 @@ provider 报告上下文超限时，Runner 会重新投影历史、重建请求�
 - 删除当前会话后保持无选择状态，不自动打开相邻会话
 - 两种入口：命令行与 Electron 桌面端，共用 Core 运行时
 - 事件流断线重连，按 `seq` 补发缺失事件
+- 桌面端任务进度面板实时展示目标、阶段、待办、修改文件、验证状态、步骤预算和最终结果
 - 回合具有显式任务阶段、验证门槛、无进展保护和结构化最终结果
 - 步数预算进入任务状态，软提醒后进入人工续行检查点；用户停止或可选硬上限触发时强制文本收尾
 - 上下文用量超过阈值时自动执行 compaction（压缩），支持分块摘要、预算收缩和确定性降级
