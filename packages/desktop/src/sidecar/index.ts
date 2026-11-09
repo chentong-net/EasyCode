@@ -12,8 +12,7 @@ import { listen } from "@easycode/server"
  * 独立进程之后，界面卡死与 agent 卡死变成两件互不影响的事，
  * 而且这个进程可以被直接从命令行启动调试（`easycode serve` 就是同一条路径）。
  *
- * 与环境变量的约定（由主进程注入）：
- * - EASYCODE_ENV_FILE：模型配置文件位置
+ * 与内部环境变量的约定（由主进程注入，不属于用户配置）：
  * - EASYCODE_SERVER_PORT：监听端口，0 表示由系统分配
  * - EASYCODE_SERVER_TOKEN：访问令牌
  * - EASYCODE_READY_FILE：就绪后写入地址的握手文件
@@ -28,11 +27,7 @@ const readPort = (raw: string | undefined): number => {
 
 const main = async (): Promise<void> => {
   const logger = createLogger("sidecar")
-  const envFile = process.env.EASYCODE_ENV_FILE
-
-  // 配置错误（缺少 API Key、模型未指定）会在这里直接抛出，
-  // 进程以非零码退出，主进程据此在界面上给出可读的失败原因
-  const core = createCore(envFile === undefined || envFile.length === 0 ? {} : { envFile })
+  const core = createCore()
 
   const token = process.env.EASYCODE_SERVER_TOKEN
   const server = await listen({

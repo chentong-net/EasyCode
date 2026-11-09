@@ -22,7 +22,9 @@ interface ConfigForm {
   webSearchApiKey: string
   webFetchProvider: WebProvider | ""
   webFetchApiKey: string
-  dataDir: string
+  webTimeoutMs: string
+  webMaxResponseBytes: string
+  webUserAgent: string
   logLevel: RuntimeConfigResponse["logLevel"]
 }
 
@@ -45,7 +47,9 @@ const EMPTY_FORM: ConfigForm = {
   webSearchApiKey: "",
   webFetchProvider: "",
   webFetchApiKey: "",
-  dataDir: "",
+  webTimeoutMs: "30000",
+  webMaxResponseBytes: "8388608",
+  webUserAgent: "EasyCode/0.1",
   logLevel: "info",
 }
 
@@ -133,6 +137,8 @@ export const SettingsDialog = ({
 
     const contextWindow = Number(form.contextWindow)
     const maxOutputTokens = Number(form.maxOutputTokens)
+    const webTimeoutMs = Number(form.webTimeoutMs)
+    const webMaxResponseBytes = Number(form.webMaxResponseBytes)
     const temperatureText = form.temperature.trim()
     const temperature = temperatureText.length === 0 ? null : Number(temperatureText)
 
@@ -142,6 +148,18 @@ export const SettingsDialog = ({
     }
     if (!Number.isInteger(maxOutputTokens) || maxOutputTokens <= 0) {
       setError("单轮输出上限必须是正整数")
+      return
+    }
+    if (!Number.isInteger(webTimeoutMs) || webTimeoutMs <= 0 || webTimeoutMs > 120_000) {
+      setError("联网超时必须是 1 到 120000 之间的整数毫秒数")
+      return
+    }
+    if (
+      !Number.isInteger(webMaxResponseBytes) ||
+      webMaxResponseBytes <= 0 ||
+      webMaxResponseBytes > 32 * 1024 * 1024
+    ) {
+      setError("联网响应上限必须是 1 到 33554432 之间的整数字节数")
       return
     }
     if (temperature !== null && !Number.isFinite(temperature)) {
@@ -161,7 +179,9 @@ export const SettingsDialog = ({
       ...secretUpdate("webSearchApiKey", form.webSearchApiKey, clear.webSearchApiKey),
       webFetchProvider: form.webFetchProvider,
       ...secretUpdate("webFetchApiKey", form.webFetchApiKey, clear.webFetchApiKey),
-      dataDir: form.dataDir,
+      webTimeoutMs,
+      webMaxResponseBytes,
+      webUserAgent: form.webUserAgent,
       logLevel: form.logLevel,
     }
 
@@ -310,8 +330,9 @@ export const SettingsDialog = ({
                       configured={config?.hasExtraHeaders === true}
                       clearing={clear.extraHeaders}
                       value={form.extraHeaders}
-                      placeholder="KEY1=VALUE1,KEY2=VALUE2"
+                      placeholder={"X-Project: example\nX-Region: cn"}
                       multiline
+                      hint="每行填写一个请求头，格式为 Name: Value"
                       onChange={(value) => setSecret("extraHeaders", value)}
                       onToggleClear={() => toggleClear("extraHeaders")}
                     />
@@ -364,6 +385,33 @@ export const SettingsDialog = ({
                       onChange={(value) => setSecret("webFetchApiKey", value)}
                       onToggleClear={() => toggleClear("webFetchApiKey")}
                     />
+                    <Field label="联网超时" hint="单位毫秒，最大 120000。">
+                      <input
+                        type="number"
+                        min={1}
+                        max={120000}
+                        step={1}
+                        value={form.webTimeoutMs}
+                        onChange={(event) => setField("webTimeoutMs", event.target.value)}
+                      />
+                    </Field>
+                    <Field label="联网响应上限" hint="单位字节，最大 32 MB。">
+                      <input
+                        type="number"
+                        min={1}
+                        max={32 * 1024 * 1024}
+                        step={1}
+                        value={form.webMaxResponseBytes}
+                        onChange={(event) => setField("webMaxResponseBytes", event.target.value)}
+                      />
+                    </Field>
+                    <Field label="联网 User-Agent" wide>
+                      <input
+                        value={form.webUserAgent}
+                        onChange={(event) => setField("webUserAgent", event.target.value)}
+                        spellCheck={false}
+                      />
+                    </Field>
                   </div>
                   <p className="settings-note">服务与对应密钥都配置后，Agent 才会获得相应工具。</p>
                 </section>
@@ -371,16 +419,9 @@ export const SettingsDialog = ({
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>本地运行</h3>
-                    <span>修改后需要重启</span>
+                    <span>路径固定，修改后需要重启</span>
                   </div>
                   <div className="settings-grid">
-                    <Field label="数据目录" wide hint="会话日志、上下文快照和工具输出都保存在这里。">
-                      <input
-                        value={form.dataDir}
-                        onChange={(event) => setField("dataDir", event.target.value)}
-                        spellCheck={false}
-                      />
-                    </Field>
                     <Field label="日志级别">
                       <select
                         value={form.logLevel}
@@ -396,9 +437,14 @@ export const SettingsDialog = ({
                     </Field>
                   </div>
                   {config !== undefined && (
-                    <p className="settings-path">
-                      配置文件：<code>{config.envFile}</code>
-                    </p>
+                    <>
+                      <p className="settings-path">
+                        配置文件：<code>{config.configFile}</code>
+                      </p>
+                      <p className="settings-path">
+                        内部数据目录固定为 <code>~/easycode/.easycode</code>，不参与配置。
+                      </p>
+                    </>
                   )}
                 </section>
               </>
@@ -406,7 +452,7 @@ export const SettingsDialog = ({
           </div>
 
           <footer className="settings-footer">
-            <span>环境变量优先级高于配置文件。</span>
+            <span>配置文件固定为 ~/easycode/.easycode/config.toml</span>
             <div className="settings-footer-actions">
               <button type="button" className="btn" onClick={onClose} disabled={saving || restarting}>
                 取消
@@ -446,6 +492,7 @@ const SecretField = ({
   clearing,
   value,
   placeholder,
+  hint,
   multiline = false,
   onChange,
   onToggleClear,
@@ -455,6 +502,7 @@ const SecretField = ({
   clearing: boolean
   value: string
   placeholder: string
+  hint?: string
   multiline?: boolean
   onChange: (value: string) => void
   onToggleClear: () => void
@@ -490,6 +538,7 @@ const SecretField = ({
         {clearing ? "取消清除" : "清除已保存值"}
       </button>
     )}
+    {hint !== undefined && <span className="settings-hint">{hint}</span>}
   </label>
 )
 
@@ -505,7 +554,9 @@ const toForm = (config: RuntimeConfigResponse): ConfigForm => ({
   webSearchApiKey: "",
   webFetchProvider: config.webFetchProvider ?? "",
   webFetchApiKey: "",
-  dataDir: config.dataDir,
+  webTimeoutMs: String(config.webTimeoutMs),
+  webMaxResponseBytes: String(config.webMaxResponseBytes),
+  webUserAgent: config.webUserAgent,
   logLevel: config.logLevel,
 })
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomBytes } from "node:crypto"
 
-import { createCore, type Core } from "@easycode/core"
+import { createCore, EASYCODE_CONFIG_FILE, type Core } from "@easycode/core"
 import { DEFAULT_WORKSPACE_DIRECTORY } from "@easycode/protocol"
 import { listen } from "@easycode/server"
 
@@ -65,7 +65,7 @@ const runCommand = async (args: ParsedArgs): Promise<void> => {
 
   try {
     if (!core.config.modelConfigured) {
-      throw new Error("模型尚未配置。请先在桌面端设置页完成配置，或补全 .env 中的 OPENAI_API_KEY 与 OPENAI_MODEL。")
+      throw new Error(`模型尚未配置。请通过桌面端设置页或编辑 ${EASYCODE_CONFIG_FILE} 完成配置。`)
     }
     const sessionID = await resolveSession(core, args, io)
 
@@ -239,10 +239,8 @@ const printHelp = (): void => {
       "  --no-token        serve 关闭鉴权，仅用于本机调试",
       "  -h, --help        显示本帮助",
       "",
-      "环境变量（可写在项目根目录的 .env 中）：OPENAI_BASE_URL / OPENAI_API_KEY /",
-      "OPENAI_MODEL / OPENAI_MODEL_CONTEXT_WINDOW / OPENAI_MAX_OUTPUT_TOKENS /",
-      "EASYCODE_DATA_DIR / EASYCODE_LOG_LEVEL",
-      "联网：EASYCODE_WEB_SEARCH_API_KEY / EASYCODE_WEB_FETCH_API_KEY（可选）",
+      `配置文件：${EASYCODE_CONFIG_FILE}`,
+      "配置包含模型、联网能力、上下文预算和日志级别；环境变量不会覆盖配置。",
       "",
     ].join("\n"),
   )

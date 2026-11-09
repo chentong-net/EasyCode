@@ -16,8 +16,10 @@ export interface MainPaths {
   preloadEntry: string
   /** 渲染层构建产物目录，由 app:// 协议映射出去 */
   rendererDir: string
-  /** 模型配置文件位置 */
-  envFile: string
+  /** 固定内部状态目录。 */
+  dataDir: string
+  /** 固定 TOML 配置文件位置。 */
+  configFile: string
   /** 日志文件位置 */
   logFile: string
   /** sidecar 就绪后写入的握手文件 */
@@ -28,7 +30,8 @@ export const resolveMainPaths = (): MainPaths => {
   // dist/main/index.cjs → 同级目录下找 preload 与 sidecar，上一级找 renderer
   const distDir = join(__dirname, "..")
 
-  const userData = app.getPath("userData")
+  const easycodeHome = join(app.getPath("home"), "easycode")
+  const dataDir = join(easycodeHome, ".easycode")
 
   return {
     // 打包后 sidecar 被解包到 asar 之外：Node 无法直接执行 asar 归档里的脚本
@@ -38,11 +41,9 @@ export const resolveMainPaths = (): MainPaths => {
     preloadEntry: join(distDir, "preload", "index.cjs"),
     rendererDir: join(distDir, "renderer"),
 
-    // 开发时读仓库根目录的 .env；打包后读用户数据目录下的 .env，
-    // 让用户不必进到应用包内部去改配置
-    envFile: app.isPackaged ? join(userData, ".env") : join(app.getAppPath(), "..", "..", ".env"),
-
-    logFile: join(app.getPath("logs"), "easycode.log"),
+    dataDir,
+    configFile: join(dataDir, "config.toml"),
+    logFile: join(dataDir, "logs", "easycode.log"),
     readyFile: join(app.getPath("temp"), `easycode-ready-${process.pid}.json`),
   }
 }

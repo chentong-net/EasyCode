@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog } from "electron"
+import { mkdir } from "node:fs/promises"
 
 import { registerIpcHandlers } from "./ipc"
 import { log, setLogFile } from "./log"
@@ -25,12 +26,14 @@ registerAppScheme()
 
 const bootstrap = async (): Promise<void> => {
   paths = resolveMainPaths()
+  await mkdir(paths.dataDir, { recursive: true })
   setLogFile(paths.logFile)
 
   log.info("桌面端启动", {
     version: app.getVersion(),
     packaged: app.isPackaged,
-    envFile: paths.envFile,
+    dataDir: paths.dataDir,
+    configFile: paths.configFile,
     readyFile: paths.readyFile,
   })
 
@@ -39,7 +42,7 @@ const bootstrap = async (): Promise<void> => {
 
   sidecar = await startSidecar({
     entry: paths.sidecarEntry,
-    envFile: paths.envFile,
+    workingDirectory: paths.dataDir,
     logFile: paths.logFile,
     readyFile: paths.readyFile,
   })
