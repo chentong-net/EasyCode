@@ -40,6 +40,11 @@ type ConnectionTestState =
   | { phase: "success"; latencyMs: number }
   | { phase: "error"; message: string }
 
+interface SaveFeedback {
+  tone: "success" | "error"
+  message: string
+}
+
 const EMPTY_FORM: ConfigForm = {
   baseUrl: "",
   model: "",
@@ -81,7 +86,7 @@ export const SettingsDialog = ({
   const [restarting, setRestarting] = useState(false)
   const [saved, setSaved] = useState(false)
   const [loadError, setLoadError] = useState<string | undefined>()
-  const [saveError, setSaveError] = useState<string | undefined>()
+  const [saveFeedback, setSaveFeedback] = useState<SaveFeedback | undefined>()
   const [connectionTest, setConnectionTest] = useState<ConnectionTestState>({ phase: "idle" })
 
   useEffect(() => {
@@ -91,7 +96,7 @@ export const SettingsDialog = ({
     setSaved(false)
     setConnectionTest({ phase: "idle" })
     setLoadError(undefined)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     setClear(EMPTY_CLEAR)
     void (async () => {
       try {
@@ -129,7 +134,7 @@ export const SettingsDialog = ({
 
   const setField = <Key extends keyof ConfigForm>(key: Key, value: ConfigForm[Key]): void => {
     setSaved(false)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     setLoadError(undefined)
     setConnectionTest({ phase: "idle" })
     setForm((current) => ({ ...current, [key]: value }))
@@ -140,7 +145,7 @@ export const SettingsDialog = ({
     value: string,
   ): void => {
     setSaved(false)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     setLoadError(undefined)
     setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: false }))
@@ -149,7 +154,7 @@ export const SettingsDialog = ({
 
   const toggleClear = (field: keyof ClearState): void => {
     setSaved(false)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     setLoadError(undefined)
     setConnectionTest({ phase: "idle" })
     setClear((current) => ({ ...current, [field]: !current[field] }))
@@ -185,15 +190,16 @@ export const SettingsDialog = ({
     }
 
     setSaving(true)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     try {
       const next = await client.config.update(input)
       setConfig(next)
       setForm(toForm(next))
       setClear(EMPTY_CLEAR)
       setSaved(true)
+      setSaveFeedback({ tone: "success", message: "保存成功" })
     } catch (cause) {
-      setSaveError(describeError(cause))
+      setSaveFeedback({ tone: "error", message: describeError(cause) })
     } finally {
       setSaving(false)
     }
@@ -201,11 +207,11 @@ export const SettingsDialog = ({
 
   const restart = async (): Promise<void> => {
     setRestarting(true)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     try {
       await restartApp()
     } catch (cause) {
-      setSaveError(describeError(cause))
+      setSaveFeedback({ tone: "error", message: describeError(cause) })
       setRestarting(false)
     }
   }
@@ -213,7 +219,7 @@ export const SettingsDialog = ({
   const testConnection = async (): Promise<void> => {
     if (connectionTest.phase === "testing") return
     setLoadError(undefined)
-    setSaveError(undefined)
+    setSaveFeedback(undefined)
     setConnectionTest({ phase: "testing" })
     try {
       const result = await client.config.test({
@@ -236,7 +242,7 @@ export const SettingsDialog = ({
           : { phase: "error", message: result.message ?? "连接测试失败" },
       )
       setLoadError(undefined)
-      setSaveError(undefined)
+      setSaveFeedback(undefined)
     } catch (cause) {
       setConnectionTest({ phase: "error", message: describeError(cause) })
     }
@@ -523,7 +529,11 @@ export const SettingsDialog = ({
           </div>
 
           <footer className="settings-footer">
-            {saveError !== undefined && <span className="settings-footer-error">{saveError}</span>}
+            {saveFeedback !== undefined && (
+              <span className={`settings-footer-message settings-footer-message-${saveFeedback.tone}`}>
+                {saveFeedback.message}
+              </span>
+            )}
             <div className="settings-footer-actions">
               <button type="button" className="btn" onClick={onClose} disabled={saving || restarting}>
                 取消

@@ -2004,10 +2004,18 @@ pre {
   font-size: 11.5px;
 }
 
-.settings-footer > .settings-footer-error {
+.settings-footer > .settings-footer-message {
   max-width: min(520px, 65%);
-  color: var(--danger);
+  font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.settings-footer-message-success {
+  color: var(--success);
+}
+
+.settings-footer-message-error {
+  color: var(--danger);
 }
 
 .settings-footer-actions {
