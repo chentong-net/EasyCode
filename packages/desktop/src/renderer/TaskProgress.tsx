@@ -73,8 +73,6 @@ export const TaskProgress = ({
 
       {expanded && (
         <div className="task-progress-body">
-          <p className="task-progress-goal">{task.contract.goal}</p>
-
           {todos.length > 0 && (
             <ol className="task-todo-list">
               {todos.map((todo, index) => (
