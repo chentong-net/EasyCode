@@ -8,6 +8,20 @@ export interface WebCapabilityConfig {
   baseURL: string
 }
 
+export interface CoreWebCapabilityConfig {
+  provider?: WebProviderID
+  apiKey: string
+}
+
+/** Core 启动时从 config.toml 读取的联网配置。 */
+export interface CoreWebConfig {
+  search: CoreWebCapabilityConfig
+  fetch: CoreWebCapabilityConfig
+  timeoutMs: number
+  maxResponseBytes: number
+  userAgent: string
+}
+
 export interface WebToolConfig {
   search?: WebCapabilityConfig
   fetch?: WebCapabilityConfig

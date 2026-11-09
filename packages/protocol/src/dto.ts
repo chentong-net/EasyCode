@@ -232,7 +232,7 @@ export type WebProvider = z.infer<typeof WebProvider>
  * 重新送回界面进程。
  */
 export const RuntimeConfigResponse = z.object({
-  envFile: z.string(),
+  configFile: z.string(),
   baseUrl: z.string(),
   model: z.string(),
   modelConfigured: z.boolean(),
@@ -245,7 +245,9 @@ export const RuntimeConfigResponse = z.object({
   hasWebSearchApiKey: z.boolean(),
   webFetchProvider: WebProvider.optional(),
   hasWebFetchApiKey: z.boolean(),
-  dataDir: z.string(),
+  webTimeoutMs: z.number().int().positive(),
+  webMaxResponseBytes: z.number().int().positive(),
+  webUserAgent: z.string(),
   logLevel: z.enum(["debug", "info", "warn", "error"]),
 })
 
@@ -271,7 +273,9 @@ export const RuntimeConfigUpdateRequest = z.object({
   webSearchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
   webFetchProvider: WebProvider.or(z.literal("")),
   webFetchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
-  dataDir: z.string().trim().min(1, "数据目录不能为空"),
+  webTimeoutMs: z.number().int().positive().max(120_000),
+  webMaxResponseBytes: z.number().int().positive().max(32 * 1024 * 1024),
+  webUserAgent: z.string().trim().min(1).max(500),
   logLevel: z.enum(["debug", "info", "warn", "error"]),
 })
 

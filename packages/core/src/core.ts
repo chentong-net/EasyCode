@@ -1,9 +1,9 @@
 import { createAgentRegistry, type AgentRegistry } from "./agent.js"
-import { loadCoreConfig, toLLMClientConfig, type CoreConfig, type LoadConfigOptions } from "./config.js"
+import { loadCoreConfig, toLLMClientConfig, type CoreConfig } from "./config.js"
 import { createConfigurationService, type ConfigurationService } from "./configuration.js"
 import { createEventHub, type EventHub } from "./events.js"
 import { createLLMClient } from "./llm/client.js"
-import { createLogger, type Logger } from "./log.js"
+import { createLogger, setLogLevel, type Logger } from "./log.js"
 import { createPermissionService, type PermissionService } from "./permission/service.js"
 import { createQuestionService, type QuestionService } from "./question/service.js"
 import { createRunner } from "./runner/index.js"
@@ -45,12 +45,12 @@ export interface Core {
   shutdown(): Promise<void>
 }
 
-export interface CreateCoreOptions extends LoadConfigOptions {
+export interface CreateCoreOptions {
   /**
    * 直接传入已加载好的配置。
    *
    * 桌面端与 CLI 都会提前加载配置（需要据此决定数据目录、日志文件位置），
-   * 再传进来可以避免重复解析 .env 与重复打印「配置加载完成」日志。
+   * 再传进来可以避免重复解析 config.toml 与重复打印「配置加载完成」日志。
    */
   config?: CoreConfig
   logger?: Logger
@@ -58,7 +58,8 @@ export interface CreateCoreOptions extends LoadConfigOptions {
 
 export const createCore = (options: CreateCoreOptions = {}): Core => {
   const logger = options.logger ?? createLogger("core")
-  const config = options.config ?? loadCoreConfig(options)
+  const config = options.config ?? loadCoreConfig()
+  setLogLevel(config.logLevel)
 
   const agents = createAgentRegistry()
   const configuration = createConfigurationService({ config })
@@ -70,7 +71,7 @@ export const createCore = (options: CreateCoreOptions = {}): Core => {
   const compaction = createCompactionManager({ config, llm, logger: logger.child("compaction") })
   const context = createSystemContextManager()
   const tools = createToolRegistry({
-    tools: createBuiltinTools(),
+    tools: createBuiltinTools(config.web),
     saveToolOutput: (content) => store.saveToolOutput(content),
     logger: logger.child("tool"),
   })

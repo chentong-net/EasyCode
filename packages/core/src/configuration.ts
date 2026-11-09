@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto"
-import { chmod, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
 
-import type { CoreConfig } from "./config.js"
-import { expandHome } from "./util/path.js"
+import {
+  renderStoredRuntimeConfig,
+  type CoreConfig,
+  type StoredRuntimeConfig,
+} from "./config.js"
+import type { CoreWebConfig, WebProviderID } from "./tool/builtin/web/types.js"
 
-export const WEB_PROVIDER_IDS = ["deepseek", "glm", "tavily"] as const
-export type WebProviderID = (typeof WEB_PROVIDER_IDS)[number]
-export type RuntimeLogLevel = "debug" | "info" | "warn" | "error"
+export type RuntimeLogLevel = StoredRuntimeConfig["logLevel"]
 
 /**
  * 配置界面的安全视图。
@@ -16,7 +18,7 @@ export type RuntimeLogLevel = "debug" | "info" | "warn" | "error"
  * 密钥输入框时表示保持原值；显式清除则通过 update 中的 null 表达。
  */
 export interface RuntimeConfigView {
-  envFile: string
+  configFile: string
   baseUrl: string
   model: string
   modelConfigured: boolean
@@ -29,7 +31,9 @@ export interface RuntimeConfigView {
   hasWebSearchApiKey: boolean
   webFetchProvider?: WebProviderID
   hasWebFetchApiKey: boolean
-  dataDir: string
+  webTimeoutMs: number
+  webMaxResponseBytes: number
+  webUserAgent: string
   logLevel: RuntimeLogLevel
 }
 
@@ -46,7 +50,9 @@ export interface RuntimeConfigUpdate {
   webSearchApiKey?: string | null
   webFetchProvider: WebProviderID | ""
   webFetchApiKey?: string | null
-  dataDir: string
+  webTimeoutMs: number
+  webMaxResponseBytes: number
+  webUserAgent: string
   logLevel: RuntimeLogLevel
 }
 
@@ -59,34 +65,18 @@ interface ConfigurationDeps {
   config: CoreConfig
 }
 
-const ENV_KEYS = {
-  baseUrl: "OPENAI_BASE_URL",
-  apiKey: "OPENAI_API_KEY",
-  model: "OPENAI_MODEL",
-  contextWindow: "OPENAI_MODEL_CONTEXT_WINDOW",
-  maxOutputTokens: "OPENAI_MAX_OUTPUT_TOKENS",
-  temperature: "OPENAI_TEMPERATURE",
-  extraHeaders: "OPENAI_EXTRA_HEADERS",
-  webSearchProvider: "EASYCODE_WEB_SEARCH_PROVIDER",
-  webSearchApiKey: "EASYCODE_WEB_SEARCH_API_KEY",
-  webFetchProvider: "EASYCODE_WEB_FETCH_PROVIDER",
-  webFetchApiKey: "EASYCODE_WEB_FETCH_API_KEY",
-  dataDir: "EASYCODE_DATA_DIR",
-  logLevel: "EASYCODE_LOG_LEVEL",
-} as const
-
 export const createConfigurationService = (deps: ConfigurationDeps): ConfigurationService => {
-  let current = readInitialView(deps.config)
+  let current = toStoredConfig(deps.config)
   let writes = Promise.resolve()
 
-  const read = async (): Promise<RuntimeConfigView> => ({ ...current })
+  const read = async (): Promise<RuntimeConfigView> => toView(deps.config.configFile, current)
 
   const update = (input: RuntimeConfigUpdate): Promise<RuntimeConfigView> => {
     const operation = writes.then(async () => {
-      const next = normalizeUpdate(input)
-      await updateEnvFile(deps.config.envFile, next)
-      current = applyUpdate(current, next)
-      return { ...current }
+      const next = applyUpdate(current, normalizeUpdate(input))
+      await writeConfigFile(deps.config.configFile, next)
+      current = next
+      return toView(deps.config.configFile, current)
     })
     writes = operation.then(
       () => undefined,
@@ -98,30 +88,43 @@ export const createConfigurationService = (deps: ConfigurationDeps): Configurati
   return { read, update }
 }
 
-const readInitialView = (config: CoreConfig): RuntimeConfigView => {
-  const webSearchProvider = readProvider("EASYCODE_WEB_SEARCH_PROVIDER")
-  const webFetchProvider = readProvider("EASYCODE_WEB_FETCH_PROVIDER")
-  const rawTemperature = readEnv("OPENAI_TEMPERATURE")
-  const temperature = rawTemperature === undefined ? undefined : Number(rawTemperature)
+const toStoredConfig = (config: CoreConfig): StoredRuntimeConfig => ({
+  baseUrl: config.baseUrl,
+  apiKey: config.apiKey,
+  model: config.model,
+  contextWindow: config.contextWindow,
+  maxOutputTokens: config.maxOutputTokens,
+  ...(config.temperature === undefined ? {} : { temperature: config.temperature }),
+  headers: { ...config.headers },
+  web: cloneWebConfig(config.web),
+  logLevel: config.logLevel,
+})
 
-  return {
-    envFile: config.envFile,
-    baseUrl: config.baseUrl,
-    model: config.model,
-    modelConfigured: config.modelConfigured,
-    contextWindow: config.contextWindow,
-    maxOutputTokens: config.maxOutputTokens,
-    ...(temperature !== undefined && Number.isFinite(temperature) ? { temperature } : {}),
-    hasApiKey: config.apiKey.length > 0,
-    hasExtraHeaders: (readEnv("OPENAI_EXTRA_HEADERS")?.length ?? 0) > 0,
-    ...(webSearchProvider === undefined ? {} : { webSearchProvider }),
-    hasWebSearchApiKey: (readEnv("EASYCODE_WEB_SEARCH_API_KEY")?.length ?? 0) > 0,
-    ...(webFetchProvider === undefined ? {} : { webFetchProvider }),
-    hasWebFetchApiKey: (readEnv("EASYCODE_WEB_FETCH_API_KEY")?.length ?? 0) > 0,
-    dataDir: config.dataDir,
-    logLevel: readLogLevel(),
-  }
-}
+const cloneWebConfig = (web: CoreWebConfig): CoreWebConfig => ({
+  ...web,
+  search: { ...web.search },
+  fetch: { ...web.fetch },
+})
+
+const toView = (configFile: string, config: StoredRuntimeConfig): RuntimeConfigView => ({
+  configFile,
+  baseUrl: config.baseUrl,
+  model: config.model,
+  modelConfigured: config.apiKey.length > 0 && config.model.length > 0,
+  contextWindow: config.contextWindow,
+  maxOutputTokens: config.maxOutputTokens,
+  ...(config.temperature === undefined ? {} : { temperature: config.temperature }),
+  hasApiKey: config.apiKey.length > 0,
+  hasExtraHeaders: Object.keys(config.headers).length > 0,
+  ...(config.web.search.provider === undefined ? {} : { webSearchProvider: config.web.search.provider }),
+  hasWebSearchApiKey: config.web.search.apiKey.length > 0,
+  ...(config.web.fetch.provider === undefined ? {} : { webFetchProvider: config.web.fetch.provider }),
+  hasWebFetchApiKey: config.web.fetch.apiKey.length > 0,
+  webTimeoutMs: config.web.timeoutMs,
+  webMaxResponseBytes: config.web.maxResponseBytes,
+  webUserAgent: config.web.userAgent,
+  logLevel: config.logLevel,
+})
 
 const normalizeUpdate = (input: RuntimeConfigUpdate): RuntimeConfigUpdate => ({
   baseUrl: input.baseUrl.trim().replace(/\/+$/, ""),
@@ -135,7 +138,9 @@ const normalizeUpdate = (input: RuntimeConfigUpdate): RuntimeConfigUpdate => ({
   webSearchApiKey: normalizeSecret(input.webSearchApiKey),
   webFetchProvider: input.webFetchProvider,
   webFetchApiKey: normalizeSecret(input.webFetchApiKey),
-  dataDir: resolve(expandHome(input.dataDir.trim())),
+  webTimeoutMs: input.webTimeoutMs,
+  webMaxResponseBytes: input.webMaxResponseBytes,
+  webUserAgent: input.webUserAgent.trim(),
   logLevel: input.logLevel,
 })
 
@@ -145,83 +150,65 @@ const normalizeSecret = (value: string | null | undefined): string | null | unde
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-const applyUpdate = (current: RuntimeConfigView, input: RuntimeConfigUpdate): RuntimeConfigView => {
-  const hasApiKey = input.apiKey === undefined ? current.hasApiKey : input.apiKey !== null
-  const hasWebSearchApiKey =
-    input.webSearchApiKey === undefined ? current.hasWebSearchApiKey : input.webSearchApiKey !== null
-  const hasWebFetchApiKey =
-    input.webFetchApiKey === undefined ? current.hasWebFetchApiKey : input.webFetchApiKey !== null
-  const temperature = input.temperature === null ? undefined : (input.temperature ?? current.temperature)
-  const webSearchProvider = input.webSearchProvider === "" ? undefined : input.webSearchProvider
-  const webFetchProvider = input.webFetchProvider === "" ? undefined : input.webFetchProvider
+const applyUpdate = (current: StoredRuntimeConfig, input: RuntimeConfigUpdate): StoredRuntimeConfig => {
+  const apiKey = input.apiKey === undefined ? current.apiKey : (input.apiKey ?? "")
+  const searchApiKey =
+    input.webSearchApiKey === undefined ? current.web.search.apiKey : (input.webSearchApiKey ?? "")
+  const fetchApiKey =
+    input.webFetchApiKey === undefined ? current.web.fetch.apiKey : (input.webFetchApiKey ?? "")
+  const headers =
+    input.extraHeaders === undefined
+      ? current.headers
+      : input.extraHeaders === null
+        ? {}
+        : parseHeaders(input.extraHeaders)
+  const temperature =
+    input.temperature === null ? undefined : (input.temperature ?? current.temperature)
 
   return {
-    envFile: current.envFile,
     baseUrl: input.baseUrl,
+    apiKey,
     model: input.model,
-    modelConfigured: hasApiKey && input.model.length > 0,
     contextWindow: input.contextWindow,
     maxOutputTokens: input.maxOutputTokens,
     ...(temperature === undefined ? {} : { temperature }),
-    hasApiKey,
-    hasExtraHeaders:
-      input.extraHeaders === undefined ? current.hasExtraHeaders : input.extraHeaders !== null,
-    ...(webSearchProvider === undefined ? {} : { webSearchProvider }),
-    hasWebSearchApiKey,
-    ...(webFetchProvider === undefined ? {} : { webFetchProvider }),
-    hasWebFetchApiKey,
-    dataDir: input.dataDir,
+    headers,
+    web: {
+      timeoutMs: input.webTimeoutMs,
+      maxResponseBytes: input.webMaxResponseBytes,
+      userAgent: input.webUserAgent,
+      search: {
+        ...(input.webSearchProvider === "" ? {} : { provider: input.webSearchProvider }),
+        apiKey: searchApiKey,
+      },
+      fetch: {
+        ...(input.webFetchProvider === "" ? {} : { provider: input.webFetchProvider }),
+        apiKey: fetchApiKey,
+      },
+    },
     logLevel: input.logLevel,
   }
 }
 
-const updateEnvFile = async (file: string, input: RuntimeConfigUpdate): Promise<void> => {
-  let original = ""
-  try {
-    original = await readFile(file, "utf8")
-  } catch (error) {
-    if (!isNotFound(error)) throw error
-  }
-
-  const updates = new Map<string, string | null>([
-    [ENV_KEYS.baseUrl, input.baseUrl],
-    [ENV_KEYS.model, input.model],
-    [ENV_KEYS.contextWindow, String(input.contextWindow)],
-    [ENV_KEYS.maxOutputTokens, String(input.maxOutputTokens)],
-    [ENV_KEYS.dataDir, input.dataDir],
-    [ENV_KEYS.logLevel, input.logLevel],
-    [ENV_KEYS.webSearchProvider, input.webSearchProvider || null],
-    [ENV_KEYS.webFetchProvider, input.webFetchProvider || null],
-  ])
-
-  if (input.temperature !== undefined) {
-    updates.set(ENV_KEYS.temperature, input.temperature === null ? null : String(input.temperature))
-  }
-  addOptionalUpdate(updates, ENV_KEYS.apiKey, input.apiKey)
-  addOptionalUpdate(updates, ENV_KEYS.extraHeaders, input.extraHeaders)
-  addOptionalUpdate(updates, ENV_KEYS.webSearchApiKey, input.webSearchApiKey)
-  addOptionalUpdate(updates, ENV_KEYS.webFetchApiKey, input.webFetchApiKey)
-
-  const seen = new Set<string>()
-  const lines = original.split(/\r?\n/)
-  const rendered: string[] = []
-  for (const line of lines) {
-    const key = envKeyOf(line)
-    if (key === undefined || !updates.has(key)) {
-      rendered.push(line)
-      continue
+const parseHeaders = (text: string): Record<string, string> => {
+  const headers: Record<string, string> = {}
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (line.length === 0) continue
+    const separator = line.indexOf(":")
+    if (separator <= 0) throw new Error(`附加请求头格式不正确：${line}。请使用 Name: Value`)
+    const name = line.slice(0, separator).trim()
+    const value = line.slice(separator + 1).trim()
+    if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name)) {
+      throw new Error(`附加请求头名称不合法：${name}`)
     }
-    seen.add(key)
-    const value = updates.get(key)
-    if (value !== null && value !== undefined) rendered.push(`${key}=${serializeEnvValue(value)}`)
+    headers[name] = value
   }
+  return headers
+}
 
-  for (const [key, value] of updates) {
-    if (seen.has(key) || value === null || value === undefined) continue
-    rendered.push(`${key}=${serializeEnvValue(value)}`)
-  }
-
-  const content = `${trimTrailingEmptyLines(rendered).join("\n")}\n`
+const writeConfigFile = async (file: string, config: StoredRuntimeConfig): Promise<void> => {
+  const content = renderStoredRuntimeConfig(config)
   await mkdir(dirname(file), { recursive: true })
   const temporary = `${file}.${randomUUID()}.tmp`
   try {
@@ -233,45 +220,3 @@ const updateEnvFile = async (file: string, input: RuntimeConfigUpdate): Promise<
     throw error
   }
 }
-
-const addOptionalUpdate = (
-  updates: Map<string, string | null>,
-  key: string,
-  value: string | null | undefined,
-): void => {
-  if (value !== undefined) updates.set(key, value)
-}
-
-const envKeyOf = (line: string): string | undefined =>
-  line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1]
-
-const serializeEnvValue = (value: string): string => {
-  if (/^[A-Za-z0-9_./:@%+,-]+$/.test(value)) return value
-  if (!value.includes('"')) return `"${value}"`
-  if (!value.includes("'")) return `'${value}'`
-  throw new Error("配置值同时包含单引号和双引号，无法安全写入 .env")
-}
-
-const trimTrailingEmptyLines = (lines: string[]): string[] => {
-  const result = [...lines]
-  while (result.length > 0 && (result.at(-1) ?? "").trim().length === 0) result.pop()
-  return result
-}
-
-const readProvider = (key: string): WebProviderID | undefined => {
-  const value = readEnv(key)?.toLowerCase()
-  return WEB_PROVIDER_IDS.includes(value as WebProviderID) ? (value as WebProviderID) : undefined
-}
-
-const readLogLevel = (): RuntimeLogLevel => {
-  const value = readEnv("EASYCODE_LOG_LEVEL")?.toLowerCase()
-  return value === "debug" || value === "warn" || value === "error" ? value : "info"
-}
-
-const readEnv = (key: string): string | undefined => {
-  const value = process.env[key]?.trim()
-  return value && value.length > 0 ? value : undefined
-}
-
-const isNotFound = (error: unknown): boolean =>
-  typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT"

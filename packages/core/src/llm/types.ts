@@ -71,7 +71,7 @@ export interface LLMClient {
   stream(request: LLMRequest): AsyncIterable<LLMEvent>
 }
 
-/** 客户端运行所需的连接配置，全部来自 .env。 */
+/** 客户端运行所需的连接配置，来源于固定 config.toml。 */
 export interface LLMClientConfig {
   baseUrl: string
   apiKey: string
