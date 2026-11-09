@@ -35,7 +35,6 @@ export interface RuntimeConfigView {
   hasWebFetchApiKey: boolean
   webTimeoutMs: number
   webMaxResponseBytes: number
-  webUserAgent: string
   logLevel: RuntimeLogLevel
 }
 
@@ -54,7 +53,6 @@ export interface RuntimeConfigUpdate {
   webFetchApiKey?: string | null
   webTimeoutMs: number
   webMaxResponseBytes: number
-  webUserAgent: string
   logLevel: RuntimeLogLevel
 }
 
@@ -193,7 +191,6 @@ const toView = (configFile: string, config: StoredRuntimeConfig): RuntimeConfigV
   hasWebFetchApiKey: config.web.fetch.apiKey.length > 0,
   webTimeoutMs: config.web.timeoutMs,
   webMaxResponseBytes: config.web.maxResponseBytes,
-  webUserAgent: config.web.userAgent,
   logLevel: config.logLevel,
 })
 
@@ -211,7 +208,6 @@ const normalizeUpdate = (input: RuntimeConfigUpdate): RuntimeConfigUpdate => ({
   webFetchApiKey: normalizeSecret(input.webFetchApiKey),
   webTimeoutMs: input.webTimeoutMs,
   webMaxResponseBytes: input.webMaxResponseBytes,
-  webUserAgent: input.webUserAgent.trim(),
   logLevel: input.logLevel,
 })
 
@@ -247,7 +243,6 @@ const applyUpdate = (current: StoredRuntimeConfig, input: RuntimeConfigUpdate): 
     web: {
       timeoutMs: input.webTimeoutMs,
       maxResponseBytes: input.webMaxResponseBytes,
-      userAgent: input.webUserAgent,
       search: {
         ...(input.webSearchProvider === "" ? {} : { provider: input.webSearchProvider }),
         apiKey: searchApiKey,
@@ -263,7 +258,7 @@ const applyUpdate = (current: StoredRuntimeConfig, input: RuntimeConfigUpdate): 
 
 const parseHeaders = (text: string): Record<string, string> => {
   const headers: Record<string, string> = {}
-  for (const rawLine of text.split(/\r?\n/)) {
+  for (const rawLine of text.split(/[;\n]/)) {
     const line = rawLine.trim()
     if (line.length === 0) continue
     const separator = line.indexOf(":")

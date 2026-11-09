@@ -73,7 +73,6 @@ max_output_tokens = 8192
 [web]
 timeout_ms = 30000
 max_response_bytes = 8388608
-user_agent = "EasyCode/0.1"
 
 [web.search]
 provider = "tavily"

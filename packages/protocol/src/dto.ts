@@ -247,7 +247,6 @@ export const RuntimeConfigResponse = z.object({
   hasWebFetchApiKey: z.boolean(),
   webTimeoutMs: z.number().int().positive(),
   webMaxResponseBytes: z.number().int().positive(),
-  webUserAgent: z.string(),
   logLevel: z.enum(["debug", "info", "warn", "error"]),
 })
 
@@ -275,7 +274,6 @@ export const RuntimeConfigUpdateRequest = z.object({
   webFetchApiKey: z.string().trim().min(1).max(20_000).optional().nullable(),
   webTimeoutMs: z.number().int().positive().max(120_000),
   webMaxResponseBytes: z.number().int().positive().max(32 * 1024 * 1024),
-  webUserAgent: z.string().trim().min(1).max(500),
   logLevel: z.enum(["debug", "info", "warn", "error"]),
 })
 

@@ -7,6 +7,7 @@ import type {
 } from "./types.js"
 
 const logger = createLogger("tool.web.config")
+const FIXED_USER_AGENT = "EasyCode/0.1"
 
 const ENDPOINTS: Record<WebProviderID, string> = {
   deepseek: "https://api.deepseek.com",
@@ -25,7 +26,7 @@ export const resolveWebToolConfig = (config: CoreWebConfig): WebToolConfig | und
     ...(fetch ? { fetch } : {}),
     timeoutMs: config.timeoutMs,
     maxResponseBytes: config.maxResponseBytes,
-    userAgent: config.userAgent || "EasyCode/0.1",
+    userAgent: FIXED_USER_AGENT,
   }
 }
 

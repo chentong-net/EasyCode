@@ -23,7 +23,6 @@ export const DEFAULT_CONTEXT_WINDOW = 128_000
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8_192
 export const DEFAULT_WEB_TIMEOUT_MS = 30_000
 export const DEFAULT_WEB_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
-export const DEFAULT_WEB_USER_AGENT = "EasyCode/0.1"
 
 export interface StoredRuntimeConfig {
   baseUrl: string
@@ -78,7 +77,6 @@ const ConfigFile = z
           .positive()
           .max(32 * 1024 * 1024)
           .default(DEFAULT_WEB_MAX_RESPONSE_BYTES),
-        user_agent: z.string().trim().min(1).default(DEFAULT_WEB_USER_AGENT),
         search: WebCapabilityFile,
         fetch: WebCapabilityFile,
       })
@@ -158,7 +156,6 @@ export const renderStoredRuntimeConfig = (config: StoredRuntimeConfig): string =
   const web: Record<string, unknown> = {
     timeout_ms: config.web.timeoutMs,
     max_response_bytes: config.web.maxResponseBytes,
-    user_agent: config.web.userAgent,
   }
   const search = capabilityToFile(config.web.search)
   const fetch = capabilityToFile(config.web.fetch)
@@ -213,7 +210,6 @@ const defaultStoredConfig = (): StoredRuntimeConfig => ({
   web: {
     timeoutMs: DEFAULT_WEB_TIMEOUT_MS,
     maxResponseBytes: DEFAULT_WEB_MAX_RESPONSE_BYTES,
-    userAgent: DEFAULT_WEB_USER_AGENT,
     search: { apiKey: "" },
     fetch: { apiKey: "" },
   },
@@ -231,7 +227,6 @@ const fromConfigFile = (config: ConfigFile): StoredRuntimeConfig => ({
   web: {
     timeoutMs: config.web.timeout_ms,
     maxResponseBytes: config.web.max_response_bytes,
-    userAgent: config.web.user_agent,
     search: {
       ...(config.web.search.provider === undefined ? {} : { provider: config.web.search.provider }),
       apiKey: config.web.search.api_key,

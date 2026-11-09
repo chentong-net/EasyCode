@@ -19,7 +19,6 @@ export interface CoreWebConfig {
   fetch: CoreWebCapabilityConfig
   timeoutMs: number
   maxResponseBytes: number
-  userAgent: string
 }
 
 export interface WebToolConfig {
